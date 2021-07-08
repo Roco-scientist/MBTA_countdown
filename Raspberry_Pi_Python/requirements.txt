@@ -1,5 +1,0 @@
-luma.core==1.16.2
-luma.oled==3.5.0
-requests==2.22.0
-Adafruit_CircuitPython_HT16K33==4.1.1
-Pillow==6.2.0

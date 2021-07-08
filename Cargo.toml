@@ -1,5 +1,5 @@
 [package]
-name = "forest_hills_departure"
+name = "MBTA_countdown"
 version = "0.2.0"
 authors = ["Rory Coffey <coffeyrt@gmail.com>"]
 edition = "2018"
