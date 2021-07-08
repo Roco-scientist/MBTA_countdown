@@ -1,16 +1,37 @@
-# Purpose
-The purpose of this repo is for code that will report to a mini clock display the next arriving train to forest hills station. <br>
+# Rust version of MBTA controller for Raspberry Pi
+## Requirements
 <ul>
-  <li>First prototype on the easiest system.  Python and raspberry pi pulling from MBTA API</li>
-  <li>Then rewrite python code into Rust along with drivers</li>
-  <li><strike>Repurpose Rust code to specialized ARM based microcontroller</strike></li>
+<li>Raspberry Pi (zero W). <a href=https://www.adafruit.com/product/3400>Can be purchased here</a></li>
+<li>ssd1306 display with I2C connection (SPI would not connect with Rust crates). <a href=https://www.amazon.com/IZOKEE-Display-SSD1306-Raspberry-White-IIC/dp/B076PDVFQD/>Can be purchased here</a></li>
+<li>7 segment clock display.  Adafruit 0.56" 4-Digit 7-Segment Display w/I2C Backpack. <a href=https://www.adafruit.com/product/3400>Can be purchased here</a></li>
+<li> Misc. electronics for prototyping: bread board, wiring, multimeter etc.</li>
+<li>OpenSSL installed on Raspberry Pi</li>
 </ul>
 
-## Conclusion
-Because of the reliance of this script on time, an internet connection, and a web API, 
-it does not seem to be a good fit for bare metal embedding where local time does not exists and adding a web interface is complex.
-For the microcontroller, I've included the Rust code up to the point where I gave up.  It is not fully functional though.<br>
-<br>
-I may come back to this with a DS3231 RTC module and an ESP8266 WiFi module.
+## Connections
 
-![ "" ](./Raspberry_Pi_Python/IMG_20200924_103744146_small.jpg)
+### Screen display
+<table>
+<tr><th>Label</th><th>Desc</th><th>RasPin</th><th>RasDesc</th></tr>
+<tr><td>GND</td><td>Ground</td><td>6</td><td>Ground</td></tr>
+<tr><td>VCC</td><td>3.3 V</td><td>1</td><td>3.3 Volts</td></tr>
+<tr><td>SDA</td><td>I2C SDA</td><td>3</td><td>GPIO2 (SDA)</td></tr>
+<tr><td>SCL</td><td>I2C SCL</td><td>5</td><td>GPIO3 (SCL)</td></tr>
+</table>
+
+### Clock display
+https://learn.adafruit.com/adafruit-led-backpack/0-dot-56-seven-segment-backpack-python-wiring-and-setup
+<table>
+<tr><th>Label</th><th>Desc</th><th>RasPin</th><th>RasDesc</th></tr>
+<tr><td>GND</td><td>Ground</td><td>6</td><td>Ground</td></tr>
+<tr><td>VCC</td><td>3.3 V</td><td>1</td><td>3.3 Volts</td></tr>
+<tr><td>SDA</td><td>I2C SDA</td><td>3</td><td>GPIO2 (SDA)</td></tr>
+<tr><td>SCL</td><td>I2C SCL</td><td>5</td><td>GPIO3 (SCL)</td></tr>
+</table>
+
+## How to run
+`sudo apt-get install libssl-dev`<br>
+`cargo build` or `cargo build --release`<br>
+`./target/target/MBTA_countdown -s <station> -d <direction>`
+### WARNING
+Takes over 2 hours to compile in --release on Raspberry Pi 0
