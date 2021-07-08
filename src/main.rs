@@ -19,21 +19,21 @@ fn main() {
     // get the initial time trains and put them in a thread safe value to be passed back and forth
     // between threads
     let train_times_option = Arc::new(Mutex::new(
-        forest_hills_departure::train_time::train_times(&dir_code, &station, &route_code)
+        MBTA_countdown::train_time::train_times(&dir_code, &station, &route_code)
             .unwrap_or_else(|err| panic!("ERROR - train_times - {}", err)),
     ));
     // create a new clock struct, this initializes the display
-    let mut clock = forest_hills_departure::ht16k33_clock::ClockDisplay::new(0x70, clock_brightness)
+    let mut clock = MBTA_countdown::ht16k33_clock::ClockDisplay::new(0x70, clock_brightness)
         .unwrap_or_else(|err| panic!("ERROR - ClockDisplay - {}", err));
     // create a new screen struct, this initializes the display
-    let mut screen = forest_hills_departure::ssd1306_screen::ScreenDisplay::new(0x3c)
+    let mut screen = MBTA_countdown::ssd1306_screen::ScreenDisplay::new(0x3c)
         .unwrap_or_else(|err| panic!("ERROR - ScreenDisplay - {}", err));
     // clone the train_times to pass into thread
     let train_times_clone = Arc::clone(&train_times_option);
     // In a new thread find train times every minute and replace train_times with new value
     thread::spawn(move || loop {
         thread::sleep(time::Duration::from_secs(60));
-        let new_train_times = forest_hills_departure::train_time::train_times(&dir_code, &station, &route_code)
+        let new_train_times = MBTA_countdown::train_time::train_times(&dir_code, &station, &route_code)
             .unwrap_or_else(|err| panic!("ERROR - train_times - {}", err));
         let mut old_train = train_times_clone.lock().unwrap();
         *old_train = new_train_times;
