@@ -35,3 +35,4 @@ https://learn.adafruit.com/adafruit-led-backpack/0-dot-56-seven-segment-backpack
 `./target/target/MBTA_countdown -s <station> -d <direction>`
 ### WARNING
 Takes over 2 hours to compile in --release on Raspberry Pi 0
+![ "" ](./IMG_20200924_103744146_small.jpg)
