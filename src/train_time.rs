@@ -11,7 +11,7 @@ use std::collections::HashMap;
 /// Main function to retrieve train times from Forest Hills Station for inbound commuter rail
 pub fn train_times(dir_code: &str, station: &str, route_code: &str) -> Result<Option<Vec<DateTime<Local>>>, Box<dyn std::error::Error>> {
     // get prediction times
-    let prediction_times = get_prediction_times(station, dir_code, rout_code)?;
+    let prediction_times = get_prediction_times(station, dir_code, route_code)?;
     // get schuduled times, if None, create empty hashmap
     let mut scheduled_times = get_scheduled_times(station, dir_code, route_code)?.unwrap_or(HashMap::new());
     // if there are predicted times, replace the scheduled times with the more accurate predicted
@@ -53,7 +53,7 @@ fn get_prediction_times(
 ) -> Result<Option<HashMap<String, DateTime<Local>>>, Box<dyn std::error::Error>> {
     // MBTA API for predicted times
     let address = format!("https://api-v3.mbta.com/predictions?filter[stop]={}&filter[direction_id]={}&include=stop&filter[route]={}", station, dir_code, route_code);
-    return get_rout_times(address);
+    return get_route_times(address);
 }
 
 /// Retreived MBTA scheduled times with their API
@@ -65,11 +65,11 @@ fn get_scheduled_times(
     let now = chrono::Local::now();
     // MBTA API for scheduled times
     let address = format!("https://api-v3.mbta.com/schedules?include=route,trip,stop&filter[min_time]={}%3A{}&filter[stop]={}&filter[route]={}&filter[direction_id]={}",now.hour(), now.minute(), station, route_code, dir_code);
-    return get_rout_times(address);
+    return get_route_times(address);
 }
 
 /// Retreives the JSON from MBTA API and parses it into a hasmap
-fn get_rout_times(
+fn get_route_times(
     address: String,
 ) -> Result<Option<HashMap<String, DateTime<Local>>>, Box<dyn std::error::Error>> {
     // retrieve the routes with the MBTA API returning a converted JSON format
