@@ -142,16 +142,14 @@ fn get_stations(url: &str) -> Result<Vec<(String, String)>, Box<dyn std::error::
                 button
                 .value()
                 .attr("data-name")
-                .unwrap().replace(" ", "_")
+                .unwrap()
+                .replace(" ", "_")
                 .replace("'", ""), 
                 button
                 .value()
                 .attr("href")
                 .unwrap()
-                .split("stop/")
-                .last()
-                .unwrap()
-                .to_string()
+                .replace("/stops/", "")
                 )
             )
         .collect();
