@@ -63,11 +63,11 @@ fn main() {
 }
 
 /// Gets the command line arguments
-pub fn arguments() -> Result<(String, String, u8), Box<dyn std::error::Error>> {
+pub fn arguments() -> Result<(String, String, u8, String), Box<dyn std::error::Error>> {
     // let stations: HashMap<&str, &str> = [("South_Station", "sstat"), ("Forest_Hills", "forhl")].iter().cloned().collect();
-    let stations = station_hasmap()?;
+    let stations = station_hashmap()?;
     let mut input_stations: Vec<&str> = stations.keys().map(|key| key.as_str()).collect();
-    let commuter_rails = commuter_hasmap()?;
+    let commuter_rails = commuter_hashmap()?;
     let mut input_commuter: Vec<&str> = commuter_rails.keys().map(|key| key.as_str()).collect();
     input_commuter.sort();
     let args = App::new("MBTA train departure display")
@@ -111,6 +111,7 @@ pub fn arguments() -> Result<(String, String, u8), Box<dyn std::error::Error>> {
         .get_matches();
     let mut dir_code = String::new();
     let mut station = String::new();
+    let mut commuter_rail = String::new();
     let clock_brightness;
     // reforms direction input to the direction code used in the API
     if let Some(direction_input) = args.value_of("direction") {
@@ -124,7 +125,7 @@ pub fn arguments() -> Result<(String, String, u8), Box<dyn std::error::Error>> {
         station = stations.get(station_input).unwrap().to_string();
     };
     if let Some(commuter_input) = args.value_of("commuter_rail") {
-        commuter_rail = commuter_rail.get(commuter_input).unwrap().to_string();
+        commuter_rail = commuter_rails.get(commuter_input).unwrap().to_string();
     };
     if let Some(clock_bright_input) = args.value_of("clock_brightness") {
         clock_brightness = clock_bright_input.parse::<u8>()?;
@@ -134,7 +135,7 @@ pub fn arguments() -> Result<(String, String, u8), Box<dyn std::error::Error>> {
     return Ok((dir_code, station, clock_brightness, commuter_rail));
 }
 
-fn station_hasmap() -> Result<HashMap<String, String>, Box<dyn std::error::Error>> {
+fn station_hashmap() -> Result<HashMap<String, String>, Box<dyn std::error::Error>> {
     let subway_url = "https://www.mbta.com/stops/subway#subway-tab";
     let communter_url = "https://www.mbta.com/stops/commuter-rail#commuter-rail-tab";
     let ferry_url = "https://www.mbta.com/stops/ferry#ferry-tab";
@@ -169,7 +170,7 @@ fn get_stations(url: &str) -> Result<Vec<(String, String)>, Box<dyn std::error::
     return Ok(station_conversion)
 }
 
-fn commuter_hasmap() -> Result<HashMap<String, String>, Box<dyn std::error::Error>> {
+fn commuter_hashmap() -> Result<HashMap<String, String>, Box<dyn std::error::Error>> {
     let commuter_url = "https://www.mbta.com/schedules/commuter-rail";
     let commuter_info = get_commuter(commuter_url)?;
     let commuter_conversion: HashMap<String, String> = commuter_info.iter().cloned().collect();
