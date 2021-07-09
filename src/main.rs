@@ -13,13 +13,12 @@ use std::{
 };
 
 fn main() {
-    let (dir_code, station, clock_brightness) = arguments().unwrap_or_else(|err| panic!("ERROR - train_times - {}", err));
-    let route_code = String::from("CR-Needham");
+    let (dir_code, station, clock_brightness, commuter_rail) = arguments().unwrap_or_else(|err| panic!("ERROR - train_times - {}", err));
     let minimum_display_min = 5i64;
     // get the initial time trains and put them in a thread safe value to be passed back and forth
     // between threads
     let train_times_option = Arc::new(Mutex::new(
-        MBTA_countdown::train_time::train_times(&dir_code, &station, &route_code)
+        MBTA_countdown::train_time::train_times(&dir_code, &station, &commuter_rail)
             .unwrap_or_else(|err| panic!("ERROR - train_times - {}", err)),
     ));
     // create a new clock struct, this initializes the display
@@ -33,7 +32,7 @@ fn main() {
     // In a new thread find train times every minute and replace train_times with new value
     thread::spawn(move || loop {
         thread::sleep(time::Duration::from_secs(60));
-        let new_train_times = MBTA_countdown::train_time::train_times(&dir_code, &station, &route_code)
+        let new_train_times = MBTA_countdown::train_time::train_times(&dir_code, &station, &commuter_rail)
             .unwrap_or_else(|err| panic!("ERROR - train_times - {}", err));
         let mut old_train = train_times_clone.lock().unwrap();
         *old_train = new_train_times;
@@ -68,7 +67,9 @@ pub fn arguments() -> Result<(String, String, u8), Box<dyn std::error::Error>> {
     // let stations: HashMap<&str, &str> = [("South_Station", "sstat"), ("Forest_Hills", "forhl")].iter().cloned().collect();
     let stations = station_hasmap()?;
     let mut input_stations: Vec<&str> = stations.keys().map(|key| key.as_str()).collect();
-    input_stations.sort();
+    let commuter_rails = commuter_hasmap()?;
+    let mut input_commuter: Vec<&str> = commuter_rails.keys().map(|key| key.as_str()).collect();
+    input_commuter.sort();
     let args = App::new("MBTA train departure display")
         .version("0.2.0")
         .author("Rory Coffey <coffeyrt@gmail.com>")
@@ -92,6 +93,15 @@ pub fn arguments() -> Result<(String, String, u8), Box<dyn std::error::Error>> {
                 .help("Train station.  Only setup for commuter rail right now"),
         )
         .arg(
+            Arg::with_name("commuter_rail")
+                .short("r")
+                .long("commuter_rail")
+                .takes_value(true)
+                .required(true)
+                .possible_values(&input_commuter)
+                .help("Commuter rail line"),
+        )
+        .arg(
             Arg::with_name("clock_brightness")
                 .short("c")
                 .long("clock_brightness")
@@ -113,12 +123,15 @@ pub fn arguments() -> Result<(String, String, u8), Box<dyn std::error::Error>> {
     if let Some(station_input) = args.value_of("station") {
         station = stations.get(station_input).unwrap().to_string();
     };
+    if let Some(commuter_input) = args.value_of("commuter_rail") {
+        commuter_rail = commuter_rail.get(commuter_input).unwrap().to_string();
+    };
     if let Some(clock_bright_input) = args.value_of("clock_brightness") {
         clock_brightness = clock_bright_input.parse::<u8>()?;
     }else{
         clock_brightness = 7u8;
     };
-    return Ok((dir_code, station, clock_brightness));
+    return Ok((dir_code, station, clock_brightness, commuter_rail));
 }
 
 fn station_hasmap() -> Result<HashMap<String, String>, Box<dyn std::error::Error>> {
@@ -156,4 +169,40 @@ fn get_stations(url: &str) -> Result<Vec<(String, String)>, Box<dyn std::error::
             )
         .collect();
     return Ok(station_conversion)
+}
+
+fn commuter_hasmap() -> Result<HashMap<String, String>, Box<dyn std::error::Error>> {
+    let commuter_url = "https://www.mbta.com/schedules/commuter-rail";
+    let commuter_info = get_commuter(commuter_url)?;
+    let commuter_conversion: HashMap<String, String> = commuter_info.iter().cloned().collect();
+    return Ok(commuter_conversion)
+}
+
+fn get_commuter(url: &str) -> Result<Vec<(String, String)>, Box<dyn std::error::Error>> {
+    let website_text = reqwest::blocking::get(url)?.text()?;
+    let document = Html::parse_document(&website_text);
+    let button_selector = Selector::parse(r#"a[class="c-grid-button c-grid-button--commuter-rail"]"#).unwrap();
+    let inner_selector = Selector::parse(r#"span[class="c-grid-button__name"]"#).unwrap();
+    let commuter_select = document.select(&button_selector);
+    let commuter_conversion: Vec<(String, String)> = commuter_select
+        .map(|button| (
+                button
+                .select(&inner_selector)
+                .last()
+                .unwrap()
+                .inner_html()
+                .replace("\u{200b}", "")
+                .replace("\n", "")
+                .replace("Line", "")
+                .trim()
+                .replace(" ", "_")
+                .replace("'", ""), 
+                button
+                .value()
+                .attr("href")
+                .unwrap()
+                .replace("/schedules/", "")
+                    )
+                ).collect();
+    return Ok(commuter_conversion)
 }
