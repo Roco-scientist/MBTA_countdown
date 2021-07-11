@@ -92,7 +92,7 @@ pub fn arguments() -> Result<(String, String, u8), Box<dyn std::error::Error>> {
                 .short("s")
                 .long("station")
                 .takes_value(true)
-                .required(true)
+                .required_unless("update_mbta")
                 .possible_values(&input_stations)
                 .help("Train station.  Only setup for commuter rail right now"),
         )
@@ -101,7 +101,7 @@ pub fn arguments() -> Result<(String, String, u8), Box<dyn std::error::Error>> {
                 .short("r")
                 .long("commuter_rail")
                 .takes_value(true)
-                .required_unless("subway_line")
+                .required_unless_one(&["subway_line", "update_mbta"])
                 .possible_values(&input_commuter)
                 .help("Commuter rail line"),
         )
@@ -110,7 +110,7 @@ pub fn arguments() -> Result<(String, String, u8), Box<dyn std::error::Error>> {
                 .short("l")
                 .long("subway_line")
                 .takes_value(true)
-                .required_unless("commuter_rail")
+                .required_unless_one(&["commuter_rail", "update_mbta"])
                 .possible_values(&input_subway)
                 .help("Subway line"),
         )
@@ -125,14 +125,19 @@ pub fn arguments() -> Result<(String, String, u8), Box<dyn std::error::Error>> {
             Arg::with_name("update_mbta")
                 .short("u")
                 .long("update_mbta")
-                .takes_value(true)
+                .takes_value(false)
                 .help("Update MBTA info from their website"),
         )
         .get_matches();
+    if args.is_present("update_mbta") {
+        println!("Updating MBTA info");
+        MBTA_countdown::mbta_info::all_mbta_info(true);
+        println!("Finished updating MBTA info");
+        std::process::exit(0i32);
+    }
     let mut dir_code;
     let mut station;
     let mut vehicle_code;
-    let clock_brightness;
     // reforms direction input to the direction code used in the API
     if let Some(direction_input) = args.value_of("direction") {
         match direction_input{
@@ -156,10 +161,7 @@ pub fn arguments() -> Result<(String, String, u8), Box<dyn std::error::Error>> {
             panic!("{} not at {}\nStopping at {}: {:?}", vehicle_code, station, station, stopping)
         }
     };
-    if let Some(clock_bright_input) = args.value_of("clock_brightness") {
-        clock_brightness = clock_bright_input.parse::<u8>()?;
-    }else{
-        clock_brightness = 7u8;
-    };
+    let clock_brightness_string = args.value_of("clock_brightness").unwrap_or("7");
+    let clock_brightness = clock_brightness_string.parse::<u8>()?;
     return Ok((dir_code, station, clock_brightness, vehicle_code));
 }
