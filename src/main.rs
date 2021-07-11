@@ -64,16 +64,21 @@ fn main() {
 
 /// Gets the command line arguments
 pub fn arguments() -> Result<(String, String, u8), Box<dyn std::error::Error>> {
-    // let stations: HashMap<&str, &str> = [("South_Station", "sstat"), ("Forest_Hills", "forhl")].iter().cloned().collect();
+    // get station and vehicle conversions for the MBTA API
     let (vehicle_info, station_info) = MBTA_countdown::mbta_info::all_mbta_info(false)?;
+    // get a list of stations to limit the station argument input
     let mut input_stations: Vec<&str> = station_info.keys().map(|key| key.as_str()).collect();
     input_stations.sort();
+    // get a list of commuter rail lines to limit the commuter rail argument input
     let commuter_rails = vehicle_info.get("Commuter_Rail")?;
     let mut input_commuter: Vec<&str> = commuter_rails.keys().map(|key| key.as_str()).collect();
     input_commuter.sort();
+    // get a list of subway lines to limit the subway argument input
     let subway_lines = vehicle_info.get("Subway")?;
     let mut input_subway: Vec<&str> = subway_lines.keys().map(|key| key.as_str()).collect();
     input_subway.sort();
+
+    // parse arguments
     let args = App::new("MBTA train departure display")
         .version("0.2.0")
         .author("Rory Coffey <coffeyrt@gmail.com>")
@@ -129,15 +134,20 @@ pub fn arguments() -> Result<(String, String, u8), Box<dyn std::error::Error>> {
                 .help("Update MBTA info from their website"),
         )
         .get_matches();
+
+    // if update_mbta is called, update mbta info then exit
     if args.is_present("update_mbta") {
         println!("Updating MBTA info");
         MBTA_countdown::mbta_info::all_mbta_info(true);
         println!("Finished updating MBTA info");
         std::process::exit(0i32);
     }
+
+    // setup argument variables that are passed to main
     let mut dir_code;
     let mut station;
     let mut vehicle_code;
+
     // reforms direction input to the direction code used in the API
     if let Some(direction_input) = args.value_of("direction") {
         match direction_input{
@@ -146,6 +156,8 @@ pub fn arguments() -> Result<(String, String, u8), Box<dyn std::error::Error>> {
             _ => panic!("Unknown direction input")
         }
     };
+
+    // Convert either commuter_rail or subway_line to MBTA API vehicle code
     if let Some(commuter_input) = args.value_of("commuter_rail") {
         vehicle_code = commuter_rail.get(commuter_input).unwrap().to_string();
     }else{
@@ -153,6 +165,8 @@ pub fn arguments() -> Result<(String, String, u8), Box<dyn std::error::Error>> {
             vehicle_code = subway_lines.get(subway).unwrap().to_string();
         }
     };
+
+    // Convert station to API code and check if the vehicle code exists at the station
     if let Some(station_input) = args.value_of("station") {
         let station_hashmap = station_info.get(station_input).unwrap();
         station = station_hashmap.keys().last().unwrap().to_string();
@@ -161,6 +175,8 @@ pub fn arguments() -> Result<(String, String, u8), Box<dyn std::error::Error>> {
             panic!("{} not at {}\nStopping at {}: {:?}", vehicle_code, station, station, stopping)
         }
     };
+
+    // either set clock_brightness to input or defaul to 7
     let clock_brightness = args.value_of("clock_brightness").unwrap_or("7").parse::<u8>()?;
     return Ok((dir_code, station, clock_brightness, vehicle_code));
 }
