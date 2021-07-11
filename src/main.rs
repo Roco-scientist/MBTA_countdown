@@ -149,10 +149,10 @@ pub fn arguments() -> Result<(String, String, u8), Box<dyn std::error::Error>> {
         }
     };
     if let Some(station_input) = args.value_of("station") {
-        station_hashmap = station_info.get(station_input).unwrap();
+        let station_hashmap = station_info.get(station_input).unwrap();
         station = station_hashmap.keys().last().unwrap().to_string();
-        stopping = station_hashmap.get(station).unwrap();
-        if !stopping.contains(vehicle_code){
+        let stopping = station_hashmap.get(&station).unwrap();
+        if !stopping.contains(&vehicle_code){
             panic!("{} not at {}\nStopping at {}: {:?}", vehicle_code, station, station, stopping)
         }
     };
