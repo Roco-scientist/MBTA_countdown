@@ -65,14 +65,13 @@ fn main() {
 /// Gets the command line arguments
 pub fn arguments() -> Result<(String, String, u8), Box<dyn std::error::Error>> {
     // let stations: HashMap<&str, &str> = [("South_Station", "sstat"), ("Forest_Hills", "forhl")].iter().cloned().collect();
-    let mbta_info = MBTA_countdown::mbta_info::all_mbta_info(false)?;
-    let stations = mbta_info.get("Stations")?;
-    let mut input_stations: Vec<&str> = stations.keys().map(|key| key.as_str()).collect();
+    let (vehicle_info, station_info) = MBTA_countdown::mbta_info::all_mbta_info(false)?;
+    let mut input_stations: Vec<&str> = station_info.keys().map(|key| key.as_str()).collect();
     input_stations.sort();
-    let commuter_rails = mbta_info.get("Commuter_Rail")?;
+    let commuter_rails = vehicle_info.get("Commuter_Rail")?;
     let mut input_commuter: Vec<&str> = commuter_rails.keys().map(|key| key.as_str()).collect();
     input_commuter.sort();
-    let subway_lines = mbta_info.get("Subway")?;
+    let subway_lines = vehicle_info.get("Subway")?;
     let mut input_subway: Vec<&str> = subway_lines.keys().map(|key| key.as_str()).collect();
     input_subway.sort();
     let args = App::new("MBTA train departure display")
@@ -142,14 +141,19 @@ pub fn arguments() -> Result<(String, String, u8), Box<dyn std::error::Error>> {
             _ => panic!("Unknown direction input")
         }
     };
-    if let Some(station_input) = args.value_of("station") {
-        station = stations.get(station_input).unwrap().to_string();
-    };
     if let Some(commuter_input) = args.value_of("commuter_rail") {
         vehicle_code = commuter_rail.get(commuter_input).unwrap().to_string();
     }else{
         if let Some(subway) = args.value_of("subway_line") {
             vehicle_code = subway_lines.get(subway).unwrap().to_string();
+        }
+    };
+    if let Some(station_input) = args.value_of("station") {
+        station_hashmap = station_info.get(station_input).unwrap();
+        station = station_hashmap.keys().last().unwrap().to_string();
+        stopping = station_hashmap.get(station).unwrap();
+        if !stopping.contains(vehicle_code){
+            panic!("{} not at {}\nStopping at {}: {:?}", vehicle_code, station, station, stopping)
         }
     };
     if let Some(clock_bright_input) = args.value_of("clock_brightness") {

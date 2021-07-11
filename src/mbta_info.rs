@@ -3,62 +3,87 @@ use std::{io::{BufWriter, BufReader},path::Path, fs::File, collections::HashMap}
 use reqwest;
 use serde_json;
 
-pub fn all_mbta_info(update: bool) -> Result<HashMap<String, HashMap<String, String>>, Box<dyn std::error::Error>> {
-    let mbta_file_loc = "mbta_info.json";
-    let mut all_info;
-    if Path::new(&mbta_file_loc).exists() && !update {
-        let g = File::open(&mbta_file_loc)?;
+pub fn all_mbta_info(update: bool) -> Result<(HashMap<String, HashMap<String, String>>, HashMap<String, HashMap<String, Vec<String>>>), Box<dyn std::error::Error>> {
+    let mbta_vehicle_file_loc = "mbta_vehicle_info.json";
+    let mbta_station_file_loc = "mbta_station_info.json";
+    let mut vehicle_info;
+    let station_info;
+    if Path::new(&mbta_vehicle_file_loc).exists() && !update {
+        let g = File::open(&mbta_vehicle_file_loc)?;
         let reader = BufReader::new(g);
-        all_info = serde_json::from_reader(reader)?;
+        vehicle_info = serde_json::from_reader(reader)?;
     }else{
         let commuter_info = retrieve_commuter()?;
-        let station_info = retrieve_station()?;
         let subway_info = retrieve_subway()?;
-        all_info = HashMap::new();
-        all_info.insert("Commuter_Rail".to_string(), commuter_info);
-        all_info.insert("Stations".to_string(), station_info);
-        all_info.insert("Subway".to_string(), subway_info);
-        let f = File::create(&mbta_file_loc)?;
+        vehicle_info = HashMap::new();
+        vehicle_info.insert("Commuter_Rail".to_string(), commuter_info);
+        vehicle_info.insert("Subway".to_string(), subway_info);
+        let f = File::create(&mbta_vehicle_file_loc)?;
         let bw = BufWriter::new(f);
-        serde_json::to_writer(bw, &all_info)?;
+        serde_json::to_writer(bw, &vehicle_info)?;
     }
-    return Ok(all_info)
+    if Path::new(&mbta_station_file_loc).exists() && !update {
+        let g = File::open(&mbta_station_file_loc)?;
+        let reader = BufReader::new(g);
+        station_info = serde_json::from_reader(reader)?;
+    }else{
+        station_info = retrieve_stations()?;
+        let f = File::create(&mbta_station_file_loc)?;
+        let bw = BufWriter::new(f);
+        serde_json::to_writer(bw, &station_info)?;
+    }
+    return Ok((vehicle_info, station_info))
 
 }
 
-fn retrieve_station() -> Result<HashMap<String, String>, Box<dyn std::error::Error>> {
+fn retrieve_stations() -> Result<HashMap<String, HashMap<String, Vec<String>>>, Box<dyn std::error::Error>> {
     let subway_url = "https://www.mbta.com/stops/subway#subway-tab";
     let communter_url = "https://www.mbta.com/stops/commuter-rail#commuter-rail-tab";
     let ferry_url = "https://www.mbta.com/stops/ferry#ferry-tab";
     let stations_info = parse_stations(subway_url)?;
-    let mut station_conversion: HashMap<String, String> = stations_info.iter().map(|station_info| (station_info[0].clone(), station_info[1].clone())).collect();
-    station_conversion.extend(parse_stations(communter_url)?.iter().map(|station| (station[0].clone(), station[1].clone())));
-    station_conversion.extend(parse_stations(ferry_url)?.iter().map(|ferry_station| (ferry_station[0].clone(), ferry_station[1].clone())));
+    let mut station_conversion: HashMap<String, HashMap<String, Vec<String>>> = stations_info.iter().cloned().collect();
+    station_conversion.extend(parse_stations(communter_url)?);
+    station_conversion.extend(parse_stations(ferry_url)?);
     return Ok(station_conversion)
 }
 
-fn parse_stations(url: &str) -> Result<Vec<[String; 2]>, Box<dyn std::error::Error>> {
+fn parse_stations(url: &str) -> Result<Vec<(String, HashMap<String, Vec<String>>)>, Box<dyn std::error::Error>> {
     let website_text = reqwest::blocking::get(url)?.text()?;
     let document = Html::parse_document(&website_text);
     let selector = Selector::parse(r#"a[class="btn button stop-btn m-detailed-stop"]"#).unwrap();
     let station_select = document.select(&selector);
-    let station_conversion: Vec<[String; 2]> = station_select
-        .map(|button| [
+    let station_conversion: Vec<(String, HashMap<String, Vec<String>>)> = station_select
+        .map(|button| (
                 button
                 .value()
                 .attr("data-name")
                 .unwrap()
                 .replace(" ", "_")
                 .replace("'", ""), 
-                button
-                .value()
-                .attr("href")
-                .unwrap()
-                .replace("/stops/", "")
-                ]
+                station_vehicles(
+                    button
+                    .value()
+                    .attr("href")
+                    .unwrap()
+                    .replace("/stops/", "")
+                    ).unwrap()
+                )
             )
         .collect();
     return Ok(station_conversion)
+}
+
+fn station_vehicles(href: String) -> Result<HashMap<String, Vec<String>>, Box<dyn std::error::Error>> {
+    println!("Retrieving info for station: {}", href);
+    let station_url = format!("https://www.mbta.com/stops/{}", href);
+    let website_text = reqwest::blocking::get(&station_url)?.text()?;
+    let document = Html::parse_document(&website_text);
+    let selector = Selector::parse(r#"a[class="c-link-block__outer-link"]"#).unwrap();
+    let vehicle_button_select = document.select(&selector);
+    let vehicles: Vec<String> = vehicle_button_select.map(|button| button.value().attr("href").unwrap().replace("/schedules/", "")).collect();
+    let mut station_vehicles_hash = HashMap::new();
+    station_vehicles_hash.insert(href, vehicles);
+    return Ok(station_vehicles_hash)
 }
 
 fn retrieve_commuter() -> Result<HashMap<String, String>, Box<dyn std::error::Error>> {
