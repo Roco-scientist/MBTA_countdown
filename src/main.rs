@@ -161,7 +161,6 @@ pub fn arguments() -> Result<(String, String, u8), Box<dyn std::error::Error>> {
             panic!("{} not at {}\nStopping at {}: {:?}", vehicle_code, station, station, stopping)
         }
     };
-    let clock_brightness_string = args.value_of("clock_brightness").unwrap_or("7");
-    let clock_brightness = clock_brightness_string.parse::<u8>()?;
+    let clock_brightness = args.value_of("clock_brightness").unwrap_or("7").parse::<u8>()?;
     return Ok((dir_code, station, clock_brightness, vehicle_code));
 }
