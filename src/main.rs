@@ -13,12 +13,12 @@ use std::{
 };
 
 fn main() {
-    let (dir_code, station, clock_brightness, commuter_rail) = arguments().unwrap_or_else(|err| panic!("ERROR - train_times - {}", err));
+    let (dir_code, station, clock_brightness, vehicle_code) = arguments().unwrap_or_else(|err| panic!("ERROR - train_times - {}", err));
     let minimum_display_min = 5i64;
     // get the initial time trains and put them in a thread safe value to be passed back and forth
     // between threads
     let train_times_option = Arc::new(Mutex::new(
-        MBTA_countdown::train_time::train_times(&dir_code, &station, &commuter_rail)
+        MBTA_countdown::train_time::train_times(&dir_code, &station, &vehicle_code)
             .unwrap_or_else(|err| panic!("ERROR - train_times - {}", err)),
     ));
     // create a new clock struct, this initializes the display
@@ -32,7 +32,7 @@ fn main() {
     // In a new thread find train times every minute and replace train_times with new value
     thread::spawn(move || loop {
         thread::sleep(time::Duration::from_secs(60));
-        let new_train_times = MBTA_countdown::train_time::train_times(&dir_code, &station, &commuter_rail)
+        let new_train_times = MBTA_countdown::train_time::train_times(&dir_code, &station, &vehicle_code)
             .unwrap_or_else(|err| panic!("ERROR - train_times - {}", err));
         let mut old_train = train_times_clone.lock().unwrap();
         *old_train = new_train_times;
@@ -63,13 +63,22 @@ fn main() {
 }
 
 /// Gets the command line arguments
-pub fn arguments() -> Result<(String, String, u8, String), Box<dyn std::error::Error>> {
-    // let stations: HashMap<&str, &str> = [("South_Station", "sstat"), ("Forest_Hills", "forhl")].iter().cloned().collect();
-    let stations = station_hashmap()?;
-    let mut input_stations: Vec<&str> = stations.keys().map(|key| key.as_str()).collect();
-    let commuter_rails = commuter_hashmap()?;
+pub fn arguments() -> Result<(String, String, u8), Box<dyn std::error::Error>> {
+    // get station and vehicle conversions for the MBTA API
+    let (vehicle_info, station_info) = MBTA_countdown::mbta_info::all_mbta_info(false)?;
+    // get a list of stations to limit the station argument input
+    let mut input_stations: Vec<&str> = station_info.keys().map(|key| key.as_str()).collect();
+    input_stations.sort();
+    // get a list of commuter rail lines to limit the commuter rail argument input
+    let commuter_rails = vehicle_info.get("Commuter_Rail")?;
     let mut input_commuter: Vec<&str> = commuter_rails.keys().map(|key| key.as_str()).collect();
     input_commuter.sort();
+    // get a list of subway lines to limit the subway argument input
+    let subway_lines = vehicle_info.get("Subway")?;
+    let mut input_subway: Vec<&str> = subway_lines.keys().map(|key| key.as_str()).collect();
+    input_subway.sort();
+
+    // parse arguments
     let args = App::new("MBTA train departure display")
         .version("0.2.0")
         .author("Rory Coffey <coffeyrt@gmail.com>")
@@ -88,7 +97,7 @@ pub fn arguments() -> Result<(String, String, u8, String), Box<dyn std::error::E
                 .short("s")
                 .long("station")
                 .takes_value(true)
-                .required(true)
+                .required_unless("update_mbta")
                 .possible_values(&input_stations)
                 .help("Train station.  Only setup for commuter rail right now"),
         )
@@ -97,9 +106,18 @@ pub fn arguments() -> Result<(String, String, u8, String), Box<dyn std::error::E
                 .short("r")
                 .long("commuter_rail")
                 .takes_value(true)
-                .required(true)
+                .required_unless_one(&["subway_line", "update_mbta"])
                 .possible_values(&input_commuter)
                 .help("Commuter rail line"),
+        )
+        .arg(
+            Arg::with_name("subway_line")
+                .short("l")
+                .long("subway_line")
+                .takes_value(true)
+                .required_unless_one(&["commuter_rail", "update_mbta"])
+                .possible_values(&input_subway)
+                .help("Subway line"),
         )
         .arg(
             Arg::with_name("clock_brightness")
@@ -108,11 +126,28 @@ pub fn arguments() -> Result<(String, String, u8, String), Box<dyn std::error::E
                 .takes_value(true)
                 .help("Scale to set clock brightness, 0-9"),
         )
+        .arg(
+            Arg::with_name("update_mbta")
+                .short("u")
+                .long("update_mbta")
+                .takes_value(false)
+                .help("Update MBTA info from their website"),
+        )
         .get_matches();
-    let mut dir_code = String::new();
-    let mut station = String::new();
-    let mut commuter_rail = String::new();
-    let clock_brightness;
+
+    // if update_mbta is called, update mbta info then exit
+    if args.is_present("update_mbta") {
+        println!("Updating MBTA info");
+        MBTA_countdown::mbta_info::all_mbta_info(true);
+        println!("Finished updating MBTA info");
+        std::process::exit(0i32);
+    }
+
+    // setup argument variables that are passed to main
+    let mut dir_code;
+    let mut station;
+    let mut vehicle_code;
+
     // reforms direction input to the direction code used in the API
     if let Some(direction_input) = args.value_of("direction") {
         match direction_input{
@@ -121,87 +156,27 @@ pub fn arguments() -> Result<(String, String, u8, String), Box<dyn std::error::E
             _ => panic!("Unknown direction input")
         }
     };
-    if let Some(station_input) = args.value_of("station") {
-        station = stations.get(station_input).unwrap().to_string();
-    };
+
+    // Convert either commuter_rail or subway_line to MBTA API vehicle code
     if let Some(commuter_input) = args.value_of("commuter_rail") {
-        commuter_rail = commuter_rails.get(commuter_input).unwrap().to_string();
-    };
-    if let Some(clock_bright_input) = args.value_of("clock_brightness") {
-        clock_brightness = clock_bright_input.parse::<u8>()?;
+        vehicle_code = commuter_rail.get(commuter_input).unwrap().to_string();
     }else{
-        clock_brightness = 7u8;
+        if let Some(subway) = args.value_of("subway_line") {
+            vehicle_code = subway_lines.get(subway).unwrap().to_string();
+        }
     };
-    return Ok((dir_code, station, clock_brightness, commuter_rail));
-}
 
-fn station_hashmap() -> Result<HashMap<String, String>, Box<dyn std::error::Error>> {
-    let subway_url = "https://www.mbta.com/stops/subway#subway-tab";
-    let communter_url = "https://www.mbta.com/stops/commuter-rail#commuter-rail-tab";
-    let ferry_url = "https://www.mbta.com/stops/ferry#ferry-tab";
-    let stations_info = get_stations(subway_url)?;
-    let mut station_conversion: HashMap<String, String> = stations_info.iter().cloned().collect();
-    station_conversion.extend(get_stations(communter_url)?);
-    station_conversion.extend(get_stations(ferry_url)?);
-    return Ok(station_conversion)
-}
+    // Convert station to API code and check if the vehicle code exists at the station
+    if let Some(station_input) = args.value_of("station") {
+        let station_hashmap = station_info.get(station_input).unwrap();
+        station = station_hashmap.keys().last().unwrap().to_string();
+        let stopping = station_hashmap.get(&station).unwrap();
+        if !stopping.contains(&vehicle_code){
+            panic!("{} not at {}\nStopping at {}: {:?}", vehicle_code, station, station, stopping)
+        }
+    };
 
-fn get_stations(url: &str) -> Result<Vec<(String, String)>, Box<dyn std::error::Error>> {
-    let website_text = reqwest::blocking::get(url)?.text()?;
-    let document = Html::parse_document(&website_text);
-    let selector = Selector::parse(r#"a[class="btn button stop-btn m-detailed-stop"]"#).unwrap();
-    let station_select = document.select(&selector);
-    let station_conversion: Vec<(String, String)> = station_select
-        .map(|button| (
-                button
-                .value()
-                .attr("data-name")
-                .unwrap()
-                .replace(" ", "_")
-                .replace("'", ""), 
-                button
-                .value()
-                .attr("href")
-                .unwrap()
-                .replace("/stops/", "")
-                )
-            )
-        .collect();
-    return Ok(station_conversion)
-}
-
-fn commuter_hashmap() -> Result<HashMap<String, String>, Box<dyn std::error::Error>> {
-    let commuter_url = "https://www.mbta.com/schedules/commuter-rail";
-    let commuter_info = get_commuter(commuter_url)?;
-    let commuter_conversion: HashMap<String, String> = commuter_info.iter().cloned().collect();
-    return Ok(commuter_conversion)
-}
-
-fn get_commuter(url: &str) -> Result<Vec<(String, String)>, Box<dyn std::error::Error>> {
-    let website_text = reqwest::blocking::get(url)?.text()?;
-    let document = Html::parse_document(&website_text);
-    let button_selector = Selector::parse(r#"a[class="c-grid-button c-grid-button--commuter-rail"]"#).unwrap();
-    let inner_selector = Selector::parse(r#"span[class="c-grid-button__name"]"#).unwrap();
-    let commuter_select = document.select(&button_selector);
-    let commuter_conversion: Vec<(String, String)> = commuter_select
-        .map(|button| (
-                button
-                .select(&inner_selector)
-                .last()
-                .unwrap()
-                .inner_html()
-                .replace("\u{200b}", "")
-                .replace("\n", "")
-                .replace("Line", "")
-                .trim()
-                .replace(" ", "_")
-                .replace("'", ""), 
-                button
-                .value()
-                .attr("href")
-                .unwrap()
-                .replace("/schedules/", "")
-                    )
-                ).collect();
-    return Ok(commuter_conversion)
+    // either set clock_brightness to input or defaul to 7
+    let clock_brightness = args.value_of("clock_brightness").unwrap_or("7").parse::<u8>()?;
+    return Ok((dir_code, station, clock_brightness, vehicle_code));
 }
