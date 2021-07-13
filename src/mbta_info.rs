@@ -31,9 +31,11 @@ pub fn all_mbta_info(update: bool) -> Result<(HashMap<String, HashMap<String, St
         // otherwise scrape all data from the website and save into JSON files
         let commuter_info = retrieve_commuter()?;
         let subway_info = retrieve_subway()?;
+        let ferry_info = retrieve_ferry()?;
         vehicle_info = HashMap::new();
         vehicle_info.insert("Commuter_Rail".to_string(), commuter_info);
         vehicle_info.insert("Subway".to_string(), subway_info);
+        vehicle_info.insert("Ferry".to_string(), ferry_info);
         let f = File::create(&mbta_vehicle_file_loc)?;
         let bw = BufWriter::new(f);
         serde_json::to_writer(bw, &vehicle_info)?;
@@ -136,6 +138,17 @@ fn retrieve_commuter() -> Result<HashMap<String, String>, Box<dyn std::error::Er
     // crate a hashmap out of the conversion information
     let commuter_conversion: HashMap<String, String> = commuter_info.iter().map(|commuter| (commuter[0].clone(), commuter[1].clone())).collect();
     return Ok(commuter_conversion)
+}
+
+/// Retrieve ferry conversion for MBTA API from common understandable name to MTBA API code
+fn retrieve_ferry() -> Result<HashMap<String, String>, Box<dyn std::error::Error>> {
+    // use the ferry schedule website to find the ferry codes which are located within the buttons
+    let ferry_url = "https://www.mbta.com/schedules/ferry";
+    // parse the ferry schedule website
+    let ferry_info = parse_schedule_website(ferry_url, r#"a[class="c-grid-button c-grid-button--ferry"]"#, r#"span[class="c-grid-button__name"]"#)?;
+    // crate a hashmap out of the conversion information
+    let ferry_conversion: HashMap<String, String> = ferry_info.iter().map(|ferry| (ferry[0].clone(), ferry[1].clone())).collect();
+    return Ok(ferry_conversion)
 }
 
 /// Retrieve subway conversion for MBTA API from common understandable name to MTBA API code.
