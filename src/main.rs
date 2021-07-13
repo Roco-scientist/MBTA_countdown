@@ -2,7 +2,7 @@ extern crate rppal;
 extern crate std;
 use clap::{Arg, App};
 
-use MBTA_countdown;
+use mbta_countdown;
 // use rppal::gpio;
 use std::{
     sync::{Arc, Mutex},
@@ -15,21 +15,21 @@ fn main() {
     // get the initial time trains and put them in a thread safe value to be passed back and forth
     // between threads
     let train_times_option = Arc::new(Mutex::new(
-        MBTA_countdown::train_time::train_times(&dir_code, &station, &vehicle_code)
+        mbta_countdown::train_time::train_times(&dir_code, &station, &vehicle_code)
             .unwrap_or_else(|err| panic!("ERROR - train_times - {}", err)),
     ));
     // create a new clock struct, this initializes the display
-    let mut clock = MBTA_countdown::ht16k33_clock::ClockDisplay::new(0x70, clock_brightness)
+    let mut clock = mbta_countdown::ht16k33_clock::ClockDisplay::new(0x70, clock_brightness)
         .unwrap_or_else(|err| panic!("ERROR - ClockDisplay - {}", err));
     // create a new screen struct, this initializes the display
-    let mut screen = MBTA_countdown::ssd1306_screen::ScreenDisplay::new(0x3c)
+    let mut screen = mbta_countdown::ssd1306_screen::ScreenDisplay::new(0x3c)
         .unwrap_or_else(|err| panic!("ERROR - ScreenDisplay - {}", err));
     // clone the train_times to pass into thread
     let train_times_clone = Arc::clone(&train_times_option);
     // In a new thread find train times every minute and replace train_times with new value
     thread::spawn(move || loop {
         thread::sleep(time::Duration::from_secs(60));
-        let new_train_times = MBTA_countdown::train_time::train_times(&dir_code, &station, &vehicle_code)
+        let new_train_times = mbta_countdown::train_time::train_times(&dir_code, &station, &vehicle_code)
             .unwrap_or_else(|err| panic!("ERROR - train_times - {}", err));
         let mut old_train = train_times_clone.lock().unwrap();
         *old_train = new_train_times;
@@ -62,7 +62,7 @@ fn main() {
 /// Gets the command line arguments
 pub fn arguments() -> Result<(String, String, u8, String), Box<dyn std::error::Error>> {
     // get station and vehicle conversions for the MBTA API
-    let (vehicle_info, station_info) = MBTA_countdown::mbta_info::all_mbta_info(false)?;
+    let (vehicle_info, station_info) = mbta_countdown::mbta_info::all_mbta_info(false)?;
     // get a list of stations to limit the station argument input
     let mut input_stations: Vec<&str> = station_info.keys().map(|key| key.as_str()).collect();
     input_stations.sort();
@@ -136,7 +136,7 @@ pub fn arguments() -> Result<(String, String, u8, String), Box<dyn std::error::E
     // if update_mbta is called, update mbta info then exit
     if args.is_present("update_mbta") {
         println!("Updating MBTA info");
-        MBTA_countdown::mbta_info::all_mbta_info(true)?;
+        mbta_countdown::mbta_info::all_mbta_info(true)?;
         println!("Finished updating MBTA info");
         std::process::exit(0i32);
     }
