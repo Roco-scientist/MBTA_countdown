@@ -1,5 +1,5 @@
 [package]
-name = "MBTA_countdown"
+name = "mbta_countdown"
 version = "0.3.0"
 authors = ["Rory Coffey <coffeyrt@gmail.com>"]
 edition = "2018"

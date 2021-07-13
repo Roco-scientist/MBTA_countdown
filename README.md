@@ -1,4 +1,6 @@
-# Rust version of MBTA controller for Raspberry Pi
+# MBTA countdown
+This program creates two displays. One display counts down until the next arrival of the MBTA train/subway while the other screen displays the arrival time.  Created in order to not miss a commuter rail train but expanded to include the subway.
+
 ## Requirements
 <ul>
 <li>Raspberry Pi (zero W). <a href=https://www.adafruit.com/product/3400>Can be purchased here</a></li>
