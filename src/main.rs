@@ -121,6 +121,7 @@ pub fn arguments() -> Result<(String, String, u8, String), Box<dyn std::error::E
                 .short("c")
                 .long("clock_brightness")
                 .takes_value(true)
+                .default_value("7")
                 .help("Scale to set clock brightness, 0-9"),
         )
         .arg(
@@ -172,6 +173,6 @@ pub fn arguments() -> Result<(String, String, u8, String), Box<dyn std::error::E
     };
 
     // either set clock_brightness to input or defaul to 7
-    let clock_brightness = args.value_of("clock_brightness").unwrap_or("7").parse::<u8>()?;
+    let clock_brightness = args.value_of("clock_brightness").unwrap().parse::<u8>()?;
     return Ok((dir_code, station, clock_brightness, vehicle_code));
 }
