@@ -74,6 +74,10 @@ pub fn arguments() -> Result<(String, String, u8, String), Box<dyn std::error::E
     let subway_lines = vehicle_info.get("Subway").unwrap();
     let mut input_subway: Vec<&str> = subway_lines.keys().map(|key| key.as_str()).collect();
     input_subway.sort();
+    // get a list of ferry lines to limit the ferry argument input
+    let ferry_lines = vehicle_info.get("Ferry").unwrap();
+    let mut input_ferry: Vec<&str> = ferry_lines.keys().map(|key| key.as_str()).collect();
+    input_ferry.sort();
 
     // parse arguments
     let args = App::new("MBTA train departure display")
@@ -100,10 +104,10 @@ pub fn arguments() -> Result<(String, String, u8, String), Box<dyn std::error::E
         )
         .arg(
             Arg::with_name("commuter_rail")
-                .short("r")
+                .short("c")
                 .long("commuter_rail")
                 .takes_value(true)
-                .required_unless_one(&["subway_line", "update_mbta"])
+                .required_unless_one(&["subway_line", "ferry_line", "update_mbta"])
                 .possible_values(&input_commuter)
                 .help("Commuter rail line"),
         )
@@ -112,13 +116,22 @@ pub fn arguments() -> Result<(String, String, u8, String), Box<dyn std::error::E
                 .short("l")
                 .long("subway_line")
                 .takes_value(true)
-                .required_unless_one(&["commuter_rail", "update_mbta"])
+                .required_unless_one(&["commuter_rail",  "ferry_line", "update_mbta"])
                 .possible_values(&input_subway)
                 .help("Subway line"),
         )
         .arg(
+            Arg::with_name("ferry_line")
+                .short("f")
+                .long("ferry_line")
+                .takes_value(true)
+                .required_unless_one(&["commuter_rail", "subway_line", "update_mbta"])
+                .possible_values(&input_ferry)
+                .help("Ferry line"),
+        )
+        .arg(
             Arg::with_name("clock_brightness")
-                .short("c")
+                .short("b")
                 .long("clock_brightness")
                 .takes_value(true)
                 .default_value("7")
@@ -154,18 +167,21 @@ pub fn arguments() -> Result<(String, String, u8, String), Box<dyn std::error::E
     // Convert either commuter_rail or subway_line to MBTA API vehicle code
     let mut vehicle_code = String::new();
     if let Some(commuter_input) = args.value_of("commuter_rail") {
-        vehicle_code = commuter_rails.get(commuter_input).unwrap().to_string();
+        vehicle_code = commuter_rails.get(commuter_input).unwrap().to_owned();
     }else{
         if let Some(subway) = args.value_of("subway_line") {
-            vehicle_code = subway_lines.get(subway).unwrap().to_string();
-        }
+            vehicle_code = subway_lines.get(subway).unwrap().to_owned();
+        }else{
+            if let Some(ferry) = args.value_of("ferry_line") {
+                vehicle_code = ferry_lines.get(ferry).unwrap().to_owned()
+            }
     };
 
     // Convert station to API code and check if the vehicle code exists at the station
     let mut station = String::new();
     if let Some(station_input) = args.value_of("station") {
         let station_hashmap = station_info.get(station_input).unwrap();
-        station = station_hashmap.keys().last().unwrap().to_string();
+        station = station_hashmap.keys().last().unwrap().to_owned();
         let stopping = station_hashmap.get(&station).unwrap();
         if !stopping.contains(&vehicle_code){
             panic!("{} not at {}\nStopping at {}: {:?}", vehicle_code, station, station, stopping)
