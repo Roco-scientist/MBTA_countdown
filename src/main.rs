@@ -182,7 +182,7 @@ pub fn arguments() -> Result<(String, String, u8, String), Box<dyn std::error::E
     if let Some(station_input) = args.value_of("station") {
         let station_hashmap = station_info.get(station_input).unwrap();
         station = station_hashmap.keys().last().unwrap().to_owned();
-        let stopping = station_hashmap.get(&station).unwrap();
+        let stopping = station_hashmap.get(&station).unwrap().to_string();
         if !stopping.contains(&vehicle_code){
             panic!("{} not at {}\nStopping at {}: {:?}", vehicle_code, station, station, stopping)
         }
