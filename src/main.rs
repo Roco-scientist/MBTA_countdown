@@ -85,7 +85,7 @@ pub fn arguments() -> Result<(String, String, u8, String), Box<dyn std::error::E
                 .short("d")
                 .long("direction")
                 .takes_value(true)
-                .required(true)
+                .required_unless("update_mbta")
                 .possible_values(&["inbound", "outbound"])
                 .help("Train direction"),
         )
