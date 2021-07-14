@@ -1,5 +1,5 @@
 use scraper::{Html, Selector};
-use std::{io::{BufWriter, BufReader},path::Path, fs::File, collections::HashMap};
+use std::{io::{BufWriter, BufReader},path::Path, fs::File, collections::HashMap, sync::{Arc, Mutex}, thread};
 use reqwest;
 use serde_json;
 
@@ -28,17 +28,36 @@ pub fn all_mbta_info(update: bool) -> Result<(HashMap<String, HashMap<String, St
         let reader = BufReader::new(g);
         vehicle_info = serde_json::from_reader(reader)?;
     }else{
+        let vehicle_info_temp = Arc::new(Mutex::new(HashMap::new()));
         // otherwise scrape all data from the website and save into JSON files
-        let commuter_info = retrieve_commuter()?;
-        let subway_info = retrieve_subway()?;
-        let ferry_info = retrieve_ferry()?;
-        vehicle_info = HashMap::new();
-        vehicle_info.insert("Commuter_Rail".to_string(), commuter_info);
-        vehicle_info.insert("Subway".to_string(), subway_info);
-        vehicle_info.insert("Ferry".to_string(), ferry_info);
+        let vehicle_clone_1 = Arc::clone(&vehicle_info_temp);
+        let c1 = thread::spawn(move ||{
+            let commuter_info = retrieve_commuter().unwrap_or_else(|err| panic!("Error: {}", err));
+            let mut vehicle_info_unlocked = vehicle_clone_1.lock().unwrap();
+            vehicle_info_unlocked.insert("Commuter_Rail".to_string(), commuter_info);
+        });
+        let vehicle_clone_2 = Arc::clone(&vehicle_info_temp);
+        let c2 = thread::spawn(move ||{
+            let subway_info = retrieve_subway().unwrap_or_else(|err| panic!("Error: {}", err));
+            let mut vehicle_info_unlocked = vehicle_clone_2.lock().unwrap();
+            vehicle_info_unlocked.insert("Commuter_Rail".to_string(), subway_info);
+        });
+        let vehicle_clone_3 = Arc::clone(&vehicle_info_temp);
+        let c3 = thread::spawn(move ||{
+            let ferry_info = retrieve_ferry().unwrap_or_else(|err| panic!("Error: {}", err));
+            let mut vehicle_info_unlocked = vehicle_clone_3.lock().unwrap();
+            vehicle_info_unlocked.insert("Commuter_Rail".to_string(), ferry_info);
+        });
+        c1.join().expect("Commuter thread panicked");
+        c2.join().expect("Subway thread panicked");
+        c3.join().expect("Ferry thread panicked");
         let f = File::create(&mbta_vehicle_file_loc)?;
         let bw = BufWriter::new(f);
-        serde_json::to_writer(bw, &vehicle_info)?;
+        let vehicle_info_1 = vehicle_info_temp.lock().unwrap();
+        serde_json::to_writer(bw, &*vehicle_info_1)?;
+        let g = File::open(&mbta_vehicle_file_loc)?;
+        let reader = BufReader::new(g);
+        vehicle_info = serde_json::from_reader(reader)?;
     }
 
     // initiate station hashmap for inner scope
@@ -131,28 +150,33 @@ fn station_vehicles(station_code: String) -> Result<HashMap<String, Vec<String>>
 
 /// Retrieve commuter rail conversion for MBTA API from common understandable name to MTBA API code
 fn retrieve_commuter() -> Result<HashMap<String, String>, Box<dyn std::error::Error>> {
+    println!("Starting Commuter");
     // use the commuter rail schedule website to find the commuter rail codes which are located within the buttons
     let commuter_url = "https://www.mbta.com/schedules/commuter-rail";
     // parse the commuter rail schedule website
     let commuter_info = parse_schedule_website(commuter_url, r#"a[class="c-grid-button c-grid-button--commuter-rail"]"#, r#"span[class="c-grid-button__name"]"#)?;
     // crate a hashmap out of the conversion information
     let commuter_conversion: HashMap<String, String> = commuter_info.iter().map(|commuter| (commuter[0].clone(), commuter[1].clone())).collect();
+    println!("Finished Commuter");
     return Ok(commuter_conversion)
 }
 
 /// Retrieve ferry conversion for MBTA API from common understandable name to MTBA API code
 fn retrieve_ferry() -> Result<HashMap<String, String>, Box<dyn std::error::Error>> {
+    println!("Starting Ferry");
     // use the ferry schedule website to find the ferry codes which are located within the buttons
     let ferry_url = "https://www.mbta.com/schedules/ferry";
     // parse the ferry schedule website
     let ferry_info = parse_schedule_website(ferry_url, r#"a[class="c-grid-button c-grid-button--ferry"]"#, r#"span[class="c-grid-button__name"]"#)?;
     // crate a hashmap out of the conversion information
     let ferry_conversion: HashMap<String, String> = ferry_info.iter().map(|ferry| (ferry[0].clone(), ferry[1].clone())).collect();
+    println!("Finished Ferry");
     return Ok(ferry_conversion)
 }
 
 /// Retrieve subway conversion for MBTA API from common understandable name to MTBA API code.
 fn retrieve_subway() -> Result<HashMap<String, String>, Box<dyn std::error::Error>> {
+    println!("Starting Subway");
     // use the subway schedule website to get the conversion information from the buttons
     let subway_url = "https://www.mbta.com/schedules/subway";
     // buttons are setup slightly different than the commuter rail.  Each colored line starts with the &str below but finishes with the color, so each needs to be determined for a scraper selector
@@ -168,6 +192,7 @@ fn retrieve_subway() -> Result<HashMap<String, String>, Box<dyn std::error::Erro
     let green_lines_info = parse_schedule_website(subway_url, r#"a[class="c-grid-button__condensed"]"#, r#"svg[role="img"]"#)?;
     // add green lines to the subway hashmap
     subway_conversion.extend(green_lines_info.iter().map(|green| (green[1].clone(), green[1].clone())));
+    println!("Finished Subway");
     return Ok(subway_conversion)
 }
 
