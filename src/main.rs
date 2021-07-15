@@ -6,7 +6,7 @@ use mbta_countdown;
 // use rppal::gpio;
 use std::{
     sync::{Arc, Mutex},
-    thread, time,
+    thread, time,collections::HashMap,
 };
 
 fn main() {
@@ -66,16 +66,19 @@ pub fn arguments() -> Result<(String, String, u8, String), Box<dyn std::error::E
     // get a list of stations to limit the station argument input
     let mut input_stations: Vec<&str> = station_info.keys().map(|key| key.as_str()).collect();
     input_stations.sort();
+    // create an empty hashmap to handle errors when the key does not exist and update is called
+    let mut empty_vehicle_hashmap = HashMap::new();
+    empty_vehicle_hashmap.insert("".to_string(), "".to_string());
     // get a list of commuter rail lines to limit the commuter rail argument input
-    let commuter_rails = vehicle_info.get("Commuter_Rail").unwrap();
+    let commuter_rails = vehicle_info.get("Commuter_Rail").unwrap_or(&empty_vehicle_hashmap);
     let mut input_commuter: Vec<&str> = commuter_rails.keys().map(|key| key.as_str()).collect();
     input_commuter.sort();
     // get a list of subway lines to limit the subway argument input
-    let subway_lines = vehicle_info.get("Subway").unwrap();
+    let subway_lines = vehicle_info.get("Subway").unwrap_or(&empty_vehicle_hashmap);
     let mut input_subway: Vec<&str> = subway_lines.keys().map(|key| key.as_str()).collect();
     input_subway.sort();
     // get a list of ferry lines to limit the ferry argument input
-    let ferry_lines = vehicle_info.get("Ferry").unwrap();
+    let ferry_lines = vehicle_info.get("Ferry").unwrap_or(&empty_vehicle_hashmap);
     let mut input_ferry: Vec<&str> = ferry_lines.keys().map(|key| key.as_str()).collect();
     input_ferry.sort();
 
