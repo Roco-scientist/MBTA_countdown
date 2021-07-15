@@ -111,8 +111,7 @@ fn parse_stations(url: &str) -> Result<Vec<(String, String, Vec<String>)>, Box<d
     let buttons = document.select(&button_selector);
 
     // iterate on buttons and pull out the station information
-    let pool = rayon::ThreadPoolBuilder::new().num_threads(num_cpus::get()).build().unwrap();
-    // let (tx, rx) = mpsc::channel();
+    // Rayon threads connot pass iterated buttons, so this is done beforehand
     let station_api: Vec<(String, String)> = buttons.map(|button|{
         let station_name = button
             .value()
@@ -127,24 +126,31 @@ fn parse_stations(url: &str) -> Result<Vec<(String, String, Vec<String>)>, Box<d
                 .replace("/stops/", "");
         (station_name, station_api_name) 
     }).collect();
+
+    // create a Arc mutex vector to add station vehicles between threads
+    // then clone to pass into pool.scope, otherwise station_start moves
     let station_start = Arc::new(Mutex::new(Vec::new()));
     let station_clone = Arc::clone(&station_start);
+
+    // create a threadpool and scope to create a block on finishing threads
+    let pool = rayon::ThreadPoolBuilder::new().num_threads(num_cpus::get()).build().unwrap();
     pool.scope(move |s| {
+        // iterate over station_api vector to pull out station_name and station_api_name, then add the vehicles
         for (station_name, station_api_name) in station_api {
+            // clone station clone to move into spawned thread
             let station_clone_2 = Arc::clone(&station_clone);
             s.spawn(move |_s| {
+                // get the vehicles for the station
                 let vehicles = station_vehicles(&station_api_name).unwrap_or_else(|err| panic!("Station vehicle error: {}", err));
+                // unlock stations_start and add the vehicles along with station and api name
                 let mut station_unlocked = station_clone_2.lock().unwrap();
                 station_unlocked.push((station_name, station_api_name, vehicles));
                 }
             );
         };
     });
+    // pull station start out of Arc and return
     let station_conversion = Arc::try_unwrap(station_start).unwrap().into_inner().unwrap();
-    // let mut station_conversion = Vec::new();
-    // for (station_name, station_api_name, vehicles) in *station_start.into_inner().unwrap() {
-    //     station_conversion.push((station_name, station_api_name, vehicles));
-    // };
     return Ok(station_conversion)
 }
 
