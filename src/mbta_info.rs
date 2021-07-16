@@ -2,8 +2,7 @@ use scraper::{Html, Selector};
 use std::{io::{BufWriter, BufReader},path::Path, fs::File, collections::HashMap};
 use reqwest;
 use serde_json;
-use num_cpus;
-use rayon;
+use rayon::{ThreadPoolBuilder, prelude::*};
 use std::{
     sync::{Arc, Mutex},
     thread, 
@@ -29,33 +28,35 @@ pub fn all_mbta_info(update: bool) -> Result<(HashMap<String, HashMap<String, St
     // if mbta vehicle JSON exists or update not called, read the JSON
     if !Path::new(&mbta_vehicle_file_loc).exists() | update {
         println!("Updating vehicle information");
-        let vehicle_info_temp = Arc::new(Mutex::new(HashMap::new()));
-        // otherwise scrape all data from the website and save into JSON files
-        let vehicle_clone_1 = Arc::clone(&vehicle_info_temp);
-        let c1 = thread::spawn(move ||{
-            let commuter_info = retrieve_commuter().unwrap_or_else(|err| panic!("Error: {}", err));
-            let mut vehicle_info_unlocked = vehicle_clone_1.lock().unwrap();
-            vehicle_info_unlocked.insert("Commuter_Rail".to_string(), commuter_info);
+
+        let vehicle_info_mutex = Arc::new(Mutex::new(HashMap::new()));
+        let vehicle_clone_outer = Arc::clone(&vehicle_info_mutex);
+        let pool = ThreadPoolBuilder::new().num_threads(3).build().expect("Threadpool failure");
+        pool.scope(move |s|{
+            let vehicle_clone_1 = Arc::clone(&vehicle_clone_outer);
+            s.spawn(move |_s|{
+                let commuter_info = retrieve_commuter().unwrap_or_else(|err| panic!("Error: {}", err));
+                let mut vehicle_info_unlocked = vehicle_clone_1.lock().unwrap();
+                vehicle_info_unlocked.insert("Commuter_Rail".to_string(), commuter_info);
+            });
+            let vehicle_clone_2 = Arc::clone(&vehicle_clone_outer);
+            s.spawn(move |_s|{
+                let subway_info = retrieve_subway().unwrap_or_else(|err| panic!("Error: {}", err));
+                let mut vehicle_info_unlocked = vehicle_clone_2.lock().unwrap();
+                vehicle_info_unlocked.insert("Subway".to_string(), subway_info);
+            });
+            let vehicle_clone_3 = Arc::clone(&vehicle_clone_outer);
+            s.spawn(move |_s|{
+                let ferry_info = retrieve_ferry().unwrap_or_else(|err| panic!("Error: {}", err));
+                let mut vehicle_info_unlocked = vehicle_clone_3.lock().unwrap();
+                vehicle_info_unlocked.insert("Ferry".to_string(), ferry_info);
+            });
         });
-        let vehicle_clone_2 = Arc::clone(&vehicle_info_temp);
-        let c2 = thread::spawn(move ||{
-            let subway_info = retrieve_subway().unwrap_or_else(|err| panic!("Error: {}", err));
-            let mut vehicle_info_unlocked = vehicle_clone_2.lock().unwrap();
-            vehicle_info_unlocked.insert("Subway".to_string(), subway_info);
-        });
-        let vehicle_clone_3 = Arc::clone(&vehicle_info_temp);
-        let c3 = thread::spawn(move ||{
-            let ferry_info = retrieve_ferry().unwrap_or_else(|err| panic!("Error: {}", err));
-            let mut vehicle_info_unlocked = vehicle_clone_3.lock().unwrap();
-            vehicle_info_unlocked.insert("Ferry".to_string(), ferry_info);
-        });
-        c1.join().expect("Commuter thread panicked");
-        c2.join().expect("Subway thread panicked");
-        c3.join().expect("Ferry thread panicked");
+
         let f = File::create(&mbta_vehicle_file_loc)?;
         let bw = BufWriter::new(f);
-        let vehicle_info_1 = vehicle_info_temp.lock().unwrap();
-        serde_json::to_writer(bw, &*vehicle_info_1)?;
+        let vehicle_info = Arc::try_unwrap(vehicle_info_mutex).unwrap().into_inner()?;
+        serde_json::to_writer(bw, &vehicle_info)?;
     }else{println!("Using existing vehicle information")};
     let g = File::open(&mbta_vehicle_file_loc)?;
     let reader = BufReader::new(g);
@@ -127,31 +128,16 @@ fn parse_stations(url: &str) -> Result<Vec<(String, String, Vec<String>)>, Box<d
         (station_name, station_api_name) 
     }).collect();
 
-    // create a Arc mutex vector to add station vehicles between threads
-    // then clone to pass into pool.scope, otherwise station_start moves
-    let station_start = Arc::new(Mutex::new(Vec::new()));
-    let station_clone = Arc::clone(&station_start);
+    // create new vector to put parallel results into
+    let mut station_info_all = Vec::new();
 
-    // create a threadpool and scope to create a block on finishing threads
-    let pool = rayon::ThreadPoolBuilder::new().num_threads(num_cpus::get()).build().unwrap();
-    pool.scope(move |s| {
-        // iterate over station_api vector to pull out station_name and station_api_name, then add the vehicles
-        for (station_name, station_api_name) in station_api {
-            // clone station clone to move into spawned thread
-            let station_clone_2 = Arc::clone(&station_clone);
-            s.spawn(move |_s| {
-                // get the vehicles for the station
-                let vehicles = station_vehicles(&station_api_name).unwrap_or_else(|err| panic!("Station vehicle error: {}", err));
-                // unlock stations_start and add the vehicles along with station and api name
-                let mut station_unlocked = station_clone_2.lock().unwrap();
-                station_unlocked.push((station_name, station_api_name, vehicles));
-                }
-            );
-        };
-    });
-    // pull station start out of Arc and return
-    let station_conversion = Arc::try_unwrap(station_start).unwrap().into_inner().unwrap();
-    return Ok(station_conversion)
+    // add station vehicles through rayon threads with par_iter
+    station_api
+        .par_iter()
+        .map(|(station_name, station_api_name)| (station_name.clone(), station_api_name.clone(), station_vehicles(&station_api_name).unwrap_or_else(|err| panic!("Station vehicle error: {}", err))))
+        .collect_into_vec(&mut station_info_all);
+
+    return Ok(station_info_all)
 }
 
 /// Finds all vehicles that stop at the station of interest
