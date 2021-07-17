@@ -3,10 +3,7 @@ use std::{io::{BufWriter, BufReader},path::Path, fs::File, collections::HashMap}
 use reqwest;
 use serde_json;
 use rayon::{ThreadPoolBuilder, prelude::*};
-use std::{
-    sync::{Arc, Mutex},
-    thread, 
-};
+use std::sync::{Arc, Mutex};
 
 /// Scrapes MBTA station and vehicle info from their website then stores the information in JSON files and returns in HashMaps
 ///
