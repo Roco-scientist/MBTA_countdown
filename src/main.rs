@@ -1,17 +1,36 @@
-extern crate rppal;
-extern crate std;
 use clap::{Arg, App};
-
 use mbta_countdown;
-// use rppal::gpio;
+use std;
 use std::{
     sync::{Arc, Mutex},
     thread, time,collections::HashMap,
+    io::{Read, Write, stdout},
 };
+use termion;
+use termion::{async_stdin, raw::IntoRawMode};
 
 fn main() {
     let (dir_code, station, clock_brightness, vehicle_code) = arguments().unwrap_or_else(|err| panic!("ERROR - train_times - {}", err));
     let minimum_display_min = 5i64;
+
+    // setup the screen as blank with 'q to quit'
+    let out = stdout();
+    let mut stdout_main = out.lock().into_raw_mode().unwrap();
+    let mut stdin = async_stdin().bytes();
+
+    write!(stdout_main, "{}{}{}",
+        termion::clear::All,
+        termion::cursor::Goto(1, 1),
+        termion::cursor::Hide
+           ).unwrap();
+    write!(stdout_main, "{}{}q{}{} to quit", 
+        termion::color::Fg(termion::color::Green),
+        termion::style::Bold,
+        termion::color::Fg(termion::color::Reset),
+        termion::style::NoBold).unwrap();
+    stdout_main.flush().unwrap();
+    drop(stdout_main);
+
     // get the initial time trains and put them in a thread safe value to be passed back and forth
     // between threads
     let train_times_option = Arc::new(Mutex::new(
@@ -26,14 +45,40 @@ fn main() {
         .unwrap_or_else(|err| panic!("ERROR - ScreenDisplay - {}", err));
     // clone the train_times to pass into thread
     let train_times_clone = Arc::clone(&train_times_option);
+    // set quit to false to have a clean quit
+    let quit = Arc::new(Mutex::new(false));
+    let quit_clone = Arc::clone(&quit);
     // In a new thread find train times every minute and replace train_times with new value
-    thread::spawn(move || loop {
-        thread::sleep(time::Duration::from_secs(60));
-        let new_train_times = mbta_countdown::train_time::train_times(&dir_code, &station, &vehicle_code)
-            .unwrap_or_else(|err| panic!("ERROR - train_times - {}", err));
-        let mut old_train = train_times_clone.lock().unwrap();
-        *old_train = new_train_times;
+    let train_time_thread = thread::spawn(move || {
+        let mut seconds_left;
+        let out = stdout();
+        loop {
+            for sec_pause in 0..59 {
+                if *quit_clone.lock().unwrap() {break};
+                seconds_left = 60 - sec_pause;
+                let mut stdout_thread = out.lock().into_raw_mode().unwrap();
+                write!(stdout_thread, "{}{}",
+                       termion::cursor::Goto(1, 2),
+                       termion::clear::CurrentLine, 
+                       ).unwrap();
+                write!(stdout_thread, "{}{}{}{}{} seconds until getting next train time update", 
+                       termion::color::Fg(termion::color::Green),
+                       termion::style::Bold, 
+                       seconds_left,
+                       termion::color::Fg(termion::color::Reset),
+                       termion::style::NoBold).unwrap();
+                stdout_thread.flush().unwrap();
+                drop(stdout_thread);
+                thread::sleep(time::Duration::from_secs(1));
+            };
+            let new_train_times = mbta_countdown::train_time::train_times(&dir_code, &station, &vehicle_code)
+                .unwrap_or_else(|err| panic!("ERROR - train_times - {}", err));
+            let mut old_train = train_times_clone.lock().unwrap();
+            *old_train = new_train_times;
+            if *quit_clone.lock().unwrap() {break};
+        };
     });
+
     // continually update screen and clock every 0.25 seconds
     loop {
         thread::sleep(time::Duration::from_millis(250));
@@ -56,7 +101,33 @@ fn main() {
                 .clear_display()
                 .unwrap_or_else(|err| panic!("ERROR - clear_display - {}", err));
         }
+
+        // get key input and quit if q is pressed with async_stdin
+        let key_input = stdin.next();
+
+        match key_input {
+            Some(Ok(b'q')) => {
+                *quit.lock().unwrap() = true;
+                break},
+            Some(a) => {
+                let mut stdout_main = out.lock().into_raw_mode().unwrap();
+                write!(stdout_main, "{}{}",termion::cursor::Goto(1,3), a.unwrap() as char).unwrap();
+                stdout_main.flush().unwrap();
+                drop(stdout_main);
+            },
+            _ => (),
+        }
     }
+
+    let mut stdout_main = out.lock().into_raw_mode().unwrap();
+    write!(stdout_main, "{}{}Cleaning up and quiting\r\n",
+        termion::cursor::Goto(1, 4),
+        termion::cursor::Show).unwrap();
+    stdout_main.flush().unwrap();
+    drop(stdout_main);
+    screen.clear_display(true).unwrap_or_else(|err| panic!("ERROR - clear_display - {}", err));
+    clock.clear_display().unwrap_or_else(|err| panic!("ERROR - clear_display - {}", err));
+    train_time_thread.join().unwrap_or_else(|err| panic!("ERROR - clear_display - {:?}", err));
 }
 
 /// Gets the command line arguments
@@ -84,7 +155,7 @@ pub fn arguments() -> Result<(String, String, u8, String), Box<dyn std::error::E
 
     // parse arguments
     let args = App::new("MBTA train departure display")
-        .version("0.2.0")
+        .version("0.3.1")
         .author("Rory Coffey <coffeyrt@gmail.com>")
         .about("Displays the departure of the Needham MBTA commuter rail")
         .arg(
