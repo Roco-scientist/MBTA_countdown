@@ -1,6 +1,5 @@
 use clap::{Arg, App};
 use mbta_countdown;
-use rppal;
 use std;
 use std::{
     sync::{Arc, Mutex},
@@ -8,7 +7,7 @@ use std::{
     io::{Read, Write, stdout},
 };
 use termion;
-use termion::{async_stdin, raw::IntoRawMode}
+use termion::{async_stdin, raw::IntoRawMode};
 
 fn main() {
     let (dir_code, station, clock_brightness, vehicle_code) = arguments().unwrap_or_else(|err| panic!("ERROR - train_times - {}", err));
@@ -38,7 +37,7 @@ fn main() {
         let mut old_train = train_times_clone.lock().unwrap();
         *old_train = new_train_times;
         let quit_unlocked = quit_clone.lock().unwrap();
-        if quit_unlocked {break};
+        if *quit_unlocked {break};
     });
 
     let stdout = stdout();
@@ -53,7 +52,6 @@ fn main() {
             .unwrap();
 
     write!(stdout, "{}", termion::clear::CurrentLine).unwrap();
-    let mut stdin = termion::async_stdin().bytes();
     write!(stdout, "{}{}q{}{} to quit", 
         termion::color::Fg(termion::color::Green),
         termion::style::Bold,
@@ -99,12 +97,12 @@ fn main() {
     }
     write!(stdout, "{}{}Cleaning up and quiting.  May take up to a minute",
         termion::clear::All,
-        termion::cursor::Show);
+        termion::cursor::Show).unwrap();
     screen.clear_display(true).unwrap_or_else(|err| panic!("ERROR - clear_display - {}", err));
     clock.clear_display().unwrap_or_else(|err| panic!("ERROR - clear_display - {}", err));
     let mut quit_unlocked = quit.lock().unwrap();
     *quit_unlocked = true;
-    train_time_thread.join().unwrap_or_else(|err| panic!("ERROR - clear_display - {}", err));
+    train_time_thread.join().unwrap_or_else(|err| panic!("ERROR - clear_display - {:?}", err));
 }
 
 /// Gets the command line arguments
@@ -132,7 +130,7 @@ pub fn arguments() -> Result<(String, String, u8, String), Box<dyn std::error::E
 
     // parse arguments
     let args = App::new("MBTA train departure display")
-        .version("0.3.0")
+        .version("0.3.1")
         .author("Rory Coffey <coffeyrt@gmail.com>")
         .about("Displays the departure of the Needham MBTA commuter rail")
         .arg(
