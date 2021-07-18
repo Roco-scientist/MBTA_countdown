@@ -27,13 +27,18 @@ fn main() {
         .unwrap_or_else(|err| panic!("ERROR - ScreenDisplay - {}", err));
     // clone the train_times to pass into thread
     let train_times_clone = Arc::clone(&train_times_option);
+    // set quit to false to have a clean quit
+    let quit = Arc::new(Mutex::new(false));
+    let quit_clone = Arc::clone(&quit);
     // In a new thread find train times every minute and replace train_times with new value
-    thread::spawn(move || loop {
+    let train_time_thread = thread::spawn(move || loop {
         thread::sleep(time::Duration::from_secs(60));
         let new_train_times = mbta_countdown::train_time::train_times(&dir_code, &station, &vehicle_code)
             .unwrap_or_else(|err| panic!("ERROR - train_times - {}", err));
         let mut old_train = train_times_clone.lock().unwrap();
         *old_train = new_train_times;
+        let quit_unlocked = quit_clone.lock().unwrap();
+        if quit_unlocked {break};
     });
 
     let stdout = stdout();
@@ -92,6 +97,14 @@ fn main() {
         }
         stdout.flush().unwrap();
     }
+    write!(stdout, "{}{}Cleaning up and quiting.  May take up to a minute",
+        termion::clear::All,
+        termion::cursor::Show);
+    screen.clear_display(true).unwrap_or_else(|err| panic!("ERROR - clear_display - {}", err));
+    clock.clear_display().unwrap_or_else(|err| panic!("ERROR - clear_display - {}", err));
+    let mut quit_unlocked = quit.lock().unwrap();
+    *quit_unlocked = true;
+    train_time_thread.join().unwrap_or_else(|err| panic!("ERROR - clear_display - {}", err));
 }
 
 /// Gets the command line arguments
@@ -119,7 +132,7 @@ pub fn arguments() -> Result<(String, String, u8, String), Box<dyn std::error::E
 
     // parse arguments
     let args = App::new("MBTA train departure display")
-        .version("0.2.0")
+        .version("0.3.0")
         .author("Rory Coffey <coffeyrt@gmail.com>")
         .about("Displays the departure of the Needham MBTA commuter rail")
         .arg(
