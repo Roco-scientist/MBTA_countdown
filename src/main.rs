@@ -1,13 +1,14 @@
-extern crate rppal;
-extern crate std;
 use clap::{Arg, App};
-
 use mbta_countdown;
-// use rppal::gpio;
+use rppal;
+use std;
 use std::{
     sync::{Arc, Mutex},
     thread, time,collections::HashMap,
+    io::{Read, Write, stdout},
 };
+use termion;
+use termion::{async_stdin, raw::IntoRawMode}
 
 fn main() {
     let (dir_code, station, clock_brightness, vehicle_code) = arguments().unwrap_or_else(|err| panic!("ERROR - train_times - {}", err));
@@ -34,6 +35,31 @@ fn main() {
         let mut old_train = train_times_clone.lock().unwrap();
         *old_train = new_train_times;
     });
+
+    let stdout = stdout();
+    let mut stdout = stdout.lock().into_raw_mode().unwrap();
+    let mut stdin = async_stdin().bytes();
+
+    // setup the screen as blank with 'q to quit'
+    write!(stdout,
+           "{}{}",
+           termion::clear::All,
+           termion::cursor::Goto(1, 1))
+            .unwrap();
+
+    write!(stdout, "{}", termion::clear::CurrentLine).unwrap();
+    let mut stdin = termion::async_stdin().bytes();
+    write!(stdout, "{}{}q{}{} to quit", 
+        termion::color::Fg(termion::color::Green),
+        termion::style::Bold,
+        termion::color::Fg(termion::color::Reset),
+        termion::style::NoBold).unwrap();
+
+    write!(stdout,
+           "{}{}",
+           termion::cursor::Goto(1, 2), termion::cursor::Hide)
+            .unwrap();
+
     // continually update screen and clock every 0.25 seconds
     loop {
         thread::sleep(time::Duration::from_millis(250));
@@ -56,6 +82,15 @@ fn main() {
                 .clear_display()
                 .unwrap_or_else(|err| panic!("ERROR - clear_display - {}", err));
         }
+
+        // get key input and quit if q is pressed with async_stdin
+        let key_input = stdin.next();
+        match key_input {
+            Some(Ok(b'q')) => break,
+            Some(a) => write!(stdout, "{}\r{}",termion::clear::CurrentLine, a.unwrap() as char).unwrap(),
+            _ => (),
+        }
+        stdout.flush().unwrap();
     }
 }
 
