@@ -44,7 +44,10 @@ pub struct ClockDisplay {
 // Functions to initialize and change clock display
 impl ClockDisplay {
     /// Creates a new ClockDisplay struct
-    pub fn new(address: u8, clock_brightness: u8) -> Result<ClockDisplay, Box<dyn std::error::Error>> {
+    pub fn new(
+        address: u8,
+        clock_brightness: u8,
+    ) -> Result<ClockDisplay, Box<dyn std::error::Error>> {
         // create new i2c interface
         let i2c = I2c::new()?;
         // connect the ht16k33 clock chip to i2c connection on the address
@@ -80,7 +83,17 @@ impl ClockDisplay {
                 diff = train_times[1].signed_duration_since(now)
             } else {
                 // if there is not a next train, clear display and end
-                self.clear_display()?;
+                if vec![
+                    self.minutes_ten,
+                    self.minutes_single,
+                    self.seconds_ten,
+                    self.seconds_single,
+                ]
+                .iter()
+                .any(|digit| digit.is_some())
+                {
+                    self.clear_display()?;
+                };
                 return Ok(());
             }
         }
@@ -137,7 +150,7 @@ impl ClockDisplay {
             // if minutes is greater than 100 clear dispaly and set all values to none
             self.clear_display()?;
         };
-        return Ok(())
+        return Ok(());
     }
 
     /// Clears clock display
