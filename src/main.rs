@@ -226,11 +226,11 @@ pub fn arguments() -> Result<(String, String, u8, String, String), Box<dyn std::
         .arg(
             Arg::with_name("clock_type")
                 .short("t")
-                .long("clock_brightness")
+                .long("clock_type")
                 .takes_value(true)
                 .default_value("HT16K33")
                 .possible_values(&["HT16K33", "TM1637"])
-                .help("Scale to set clock brightness, 0-9"),
+                .help("Set countdown clock type"),
         )
         .arg(
             Arg::with_name("update_mbta")
