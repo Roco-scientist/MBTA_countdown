@@ -13,10 +13,8 @@ impl Clocks {
         address: Option<u8>,
     ) -> Result<Clocks, Box<dyn std::error::Error>> {
         if clock_type == "HT16K33".to_string() {
-            let clock_ht16k33 = crate::ht16k33::ClockDisplay::new(
-                address.unwrap(),
-                clock_brightness,
-            )?;
+            let clock_ht16k33 =
+                crate::ht16k33::ClockDisplay::new(address.unwrap(), clock_brightness)?;
             Ok(Clocks {
                 display_ht16k33: Some(clock_ht16k33),
                 display_tm1637: None,
@@ -55,4 +53,3 @@ impl Clocks {
         Ok(())
     }
 }
-

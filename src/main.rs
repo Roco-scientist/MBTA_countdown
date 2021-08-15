@@ -52,7 +52,7 @@ fn main() {
     }
     let mut clock;
     clock = mbta_countdown::clocks::Clocks::new(clock_type, clock_brightness, address)
-                .unwrap_or_else(|err| panic!("ERROR - clock - {}", err));
+        .unwrap_or_else(|err| panic!("ERROR - clock - {}", err));
     loop {
         if quit {
             break;
