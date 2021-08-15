@@ -6,10 +6,10 @@ use rppal;
 use std;
 
 const FREQUENCY_KHZ: u16 = 50; // 250 max
-const DELAY_USECS: u16 = 1000/FREQUENCY_KHZ; //USECS_IN_MSEC / MAX_FREQ_KHZ;
+const DELAY_USECS: u16 = 1000 / FREQUENCY_KHZ; //USECS_IN_MSEC / MAX_FREQ_KHZ;
 
-const _ADDRESS_AUTO_INCREMENT_1_MODE: u8 = 0b01000000; // 0x40;
-const FIXED_ADDRESS_MODE: u8 = 0b01000100; // 0x40;
+const ADDRESS_AUTO_INCREMENT_1_MODE: u8 = 0b0100_0000; // 0x40;
+const FIXED_ADDRESS_MODE: u8 = 0b0100_0100; // 0x40;
 
 //      A
 //     ---
@@ -22,17 +22,39 @@ const FIXED_ADDRESS_MODE: u8 = 0b01000100; // 0x40;
 //   HGFEDCBA
 // 0b01101101 = 0x6D = 109 = show "5"
 const BINS: [u8; 16] = [
-    0b00111111, 0b00000110, 0b01011011, 0b01001111, 0b01100110, 0b01101101, 0b01111101, 0b00000111,
-    0b01111111, 0b01101111, 0b01110111, 0b01111100, 0b00111001, 0b01011110, 0b01111001, 0b01110001,
+    0b0011_1111,
+    0b0000_0110,
+    0b0101_1011,
+    0b0100_1111,
+    0b0110_0110,
+    0b0110_1101,
+    0b0111_1101,
+    0b0000_0111,
+    0b0111_1111,
+    0b0110_1111,
+    0b0111_0111,
+    0b0111_1100,
+    0b0011_1001,
+    0b0101_1110,
+    0b0111_1001,
+    0b011_10001,
 ];
 
-const DISPLAY_ADDRESS: [u8; 4] = [
-    0b11000000, 0b11000001, 0b11000010, 0b11000011, 
-]; 
+const DISPLAY_ADDRESS: [u8; 4] = [0b1100_0000, 0b1100_0001, 0b1100_0010, 0b1100_0011];
+
+const _TURN_ON: u8 = 0b1000_1000;
+const TURN_OFF: u8 = 0b1000_0000;
 
 const DISPLAY_BRIGHTNESS: [u8; 8] = [
-    0b10001000, 0b10001001, 0b10001010, 0b10001011, 0b10001100, 0b10001101, 0b10001110, 0b10001111, 
-];  // page 5 of spec sheet
+    0b1000_1000,
+    0b1000_1001,
+    0b1000_1010,
+    0b1000_1011,
+    0b1000_1100,
+    0b1000_1101,
+    0b1000_1110,
+    0b1000_1111,
+]; // page 5 of spec sheet
 
 /// A struct to hold the display along with the digits for each location
 pub struct ClockDisplay {
@@ -56,7 +78,6 @@ impl ClockDisplay {
         let dio_pin = gpio.get(27)?.into_output();
         // connect the ht16k33 clock chip to i2c connection on the address
         let mut clock = TM1637::new(clk_pin, dio_pin, delay);
-        clock.init().unwrap();
         clock.clear().unwrap();
         // return ClockDisplay struct with empty digits to be filled later
         Ok(ClockDisplay {
@@ -131,27 +152,37 @@ impl ClockDisplay {
                 self.display_nums()?;
             } else {
                 // else change only the values that have changed
-                self.display.init().unwrap();
+                self.display.init(FIXED_ADDRESS_MODE).unwrap();
                 if Some(first) != self.minutes_ten {
-                    self.display.print_raw(DISPLAY_ADDRESS[0], BINS[first]).unwrap();
+                    self.display
+                        .print_raw(DISPLAY_ADDRESS[0], BINS[first])
+                        .unwrap();
                     self.minutes_ten = Some(first);
                 }
                 if Some(second) != self.minutes_single {
                     let mut bin_colon = BINS[second as usize];
                     // add the colon with the first bit
                     bin_colon |= 0b10000000;
-                    self.display.print_raw(DISPLAY_ADDRESS[1], bin_colon).unwrap();
+                    self.display
+                        .print_raw(DISPLAY_ADDRESS[1], bin_colon)
+                        .unwrap();
                     self.minutes_single = Some(second);
                 }
                 if Some(third) != self.seconds_ten {
-                    self.display.print_raw(DISPLAY_ADDRESS[2], BINS[third]).unwrap();
+                    self.display
+                        .print_raw(DISPLAY_ADDRESS[2], BINS[third])
+                        .unwrap();
                     self.seconds_ten = Some(third);
                 }
                 if Some(fourth) != self.seconds_single {
-                    self.display.print_raw(DISPLAY_ADDRESS[3], BINS[fourth]).unwrap();
+                    self.display
+                        .print_raw(DISPLAY_ADDRESS[3], BINS[fourth])
+                        .unwrap();
                     self.seconds_single = Some(fourth);
                 }
-                self.display.set_brightness(self.brightness).unwrap();
+                self.display
+                    .turn_on_and_set_brightness(self.brightness)
+                    .unwrap();
             }
         } else {
             // if minutes is greater than 100 clear dispaly and set all values to none
@@ -168,7 +199,22 @@ impl ClockDisplay {
         self.seconds_ten = None;
         self.seconds_single = None;
         // clear the display buffer then push to clock to create a clear clock
-        self.display.clear().unwrap();
+        self.display.init(FIXED_ADDRESS_MODE).unwrap();
+        self.display
+            .print_raw(DISPLAY_ADDRESS[0], 0b0000_0000)
+            .unwrap();
+        self.display
+            .print_raw(DISPLAY_ADDRESS[1], 0b0000_0000)
+            .unwrap();
+        self.display
+            .print_raw(DISPLAY_ADDRESS[2], 0b0000_0000)
+            .unwrap();
+        self.display
+            .print_raw(DISPLAY_ADDRESS[3], 0b0000_0000)
+            .unwrap();
+        self.display
+            .turn_on_and_set_brightness(self.brightness)
+            .unwrap();
         Ok(())
     }
 
@@ -176,25 +222,33 @@ impl ClockDisplay {
     fn display_nums(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         // Retrieve a vec! of leds that need to be turned on for the numbers
         // Then turn them on
-        self.display.init().unwrap();
+        self.display.init(FIXED_ADDRESS_MODE).unwrap();
         if let Some(minutes_ten) = self.minutes_ten {
-            self.display.print_raw(DISPLAY_ADDRESS[0], BINS[minutes_ten]).unwrap();
+            self.display
+                .print_raw(DISPLAY_ADDRESS[0], BINS[minutes_ten])
+                .unwrap();
         }
         if let Some(minutes_single) = self.minutes_single {
             let mut bin_colon = BINS[minutes_single as usize];
             // add the colon with the first bit
             bin_colon |= 0b10000000;
-            self.display.print_raw(DISPLAY_ADDRESS[1], bin_colon).unwrap();
+            self.display
+                .print_raw(DISPLAY_ADDRESS[1], bin_colon)
+                .unwrap();
         }
         if let Some(seconds_ten) = self.seconds_ten {
-            self.display.print_raw(DISPLAY_ADDRESS[2], BINS[seconds_ten]).unwrap();
+            self.display
+                .print_raw(DISPLAY_ADDRESS[2], BINS[seconds_ten])
+                .unwrap();
         }
         if let Some(seconds_single) = self.seconds_single {
             self.display
                 .print_raw(DISPLAY_ADDRESS[3], BINS[seconds_single])
                 .unwrap();
         }
-        self.display.set_brightness(self.brightness).unwrap();
+        self.display
+            .turn_on_and_set_brightness(self.brightness)
+            .unwrap();
         return Ok(());
     }
 }
@@ -234,16 +288,21 @@ where
         Self { clk, dio, delay }
     }
 
-    pub fn init(&mut self) -> Res<E> {
+    pub fn init(&mut self, mode: u8) -> Res<E> {
         self.start()?;
-        self.send(FIXED_ADDRESS_MODE)?;
+        self.send(mode)?;
         self.stop()?;
 
         Ok(())
     }
 
     pub fn clear(&mut self) -> Res<E> {
-        self.print_raw_iter(0, core::iter::repeat(0).take(4))
+        self.init(ADDRESS_AUTO_INCREMENT_1_MODE)?;
+        self.print_raw_iter(0, core::iter::repeat(0).take(4))?;
+        self.start()?;
+        self.send(TURN_OFF)?;
+        self.stop()?;
+        Ok(())
     }
 
     pub fn print_raw(&mut self, address: u8, byte: u8) -> Res<E> {
@@ -268,9 +327,17 @@ where
         Ok(())
     }
 
-    pub fn set_brightness(&mut self, level: usize) -> Res<E> {
+    pub fn turn_on_and_set_brightness(&mut self, level: usize) -> Res<E> {
         self.start()?;
         self.send(DISPLAY_BRIGHTNESS[level])?;
+        self.stop()?;
+
+        Ok(())
+    }
+
+    pub fn turn_off(&mut self) -> Res<E> {
+        self.start()?;
+        self.send(TURN_OFF)?;
         self.stop()?;
 
         Ok(())
