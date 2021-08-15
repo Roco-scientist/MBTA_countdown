@@ -9,11 +9,16 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 /// Main function to retrieve train times from Forest Hills Station for inbound commuter rail
-pub fn train_times(dir_code: &str, station: &str, route_code: &str) -> Result<Option<Vec<DateTime<Local>>>, Box<dyn std::error::Error>> {
+pub fn train_times(
+    dir_code: &str,
+    station: &str,
+    route_code: &str,
+) -> Result<Option<Vec<DateTime<Local>>>, Box<dyn std::error::Error>> {
     // get prediction times
     let prediction_times = get_prediction_times(station, dir_code, route_code)?;
     // get schuduled times, if None, create empty hashmap
-    let mut scheduled_times = get_scheduled_times(station, dir_code, route_code)?.unwrap_or(HashMap::new());
+    let mut scheduled_times =
+        get_scheduled_times(station, dir_code, route_code)?.unwrap_or(HashMap::new());
     // if there are predicted times, replace the scheduled times with the more accurate predicted
     // tiem
     if let Some(pred_times) = prediction_times {

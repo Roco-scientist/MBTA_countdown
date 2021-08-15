@@ -10,12 +10,12 @@ use embedded_graphics::{
     prelude::*,
     style::TextStyleBuilder,
 };
-use rppal::i2c;
+use rppal::i2c::I2c;
 use ssd1306::{prelude::*, Builder, I2CDIBuilder};
 
 /// Structure that contains screen information
 pub struct ScreenDisplay {
-    display: GraphicsMode<I2CInterface<i2c::I2c>>,
+    display: GraphicsMode<I2CInterface<I2c>>,
     // the closest train time
     train1: Option<DateTime<Local>>,
     // the second closest train time
@@ -27,7 +27,7 @@ impl ScreenDisplay {
     /// Initializes a new screen display with empty train times
     pub fn new(address: u16) -> Result<ScreenDisplay, Box<dyn std::error::Error>> {
         // bus4 I2c connection information
-        let mut i2c = i2c::I2c::new()?;
+        let mut i2c = I2c::new()?;
         i2c.set_slave_address(address)?;
         // creates an interface that connects to I2c
         let interface = I2CDIBuilder::new().init(i2c);
@@ -78,7 +78,8 @@ impl ScreenDisplay {
                 // creates text buffer
                 Text::new(&time, Point::new(35, 5))
                     .into_styled(text_style)
-                    .draw(&mut self.display).unwrap();
+                    .draw(&mut self.display)
+                    .unwrap();
                 // displays text buffer
                 self.display.flush().unwrap();
             }
@@ -88,7 +89,8 @@ impl ScreenDisplay {
                 // creats text buffer
                 Text::new(&time, Point::new(35, 25))
                     .into_styled(text_style)
-                    .draw(&mut self.display).unwrap();
+                    .draw(&mut self.display)
+                    .unwrap();
                 // displays text buffer
                 self.display.flush().unwrap();
             }
