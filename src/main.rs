@@ -4,12 +4,14 @@ use std;
 use std::{
     collections::HashMap,
     io::{stdout, Read, Write},
-    thread, time,
+    sync::{Arc, Mutex},
+    time::Duration,
 };
 use termion;
 use termion::{async_stdin, raw::IntoRawMode};
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let (dir_code, station, clock_brightness, vehicle_code, clock_type) =
         arguments().unwrap_or_else(|err| panic!("ERROR - train_times - {}", err));
     let minimum_display_min = 5i64;
@@ -39,10 +41,8 @@ fn main() {
     stdout_main.flush().unwrap();
 
     // set quit to false to have a clean quit
-    let mut quit = false;
+    let quit = Arc::new(Mutex::new(false));
 
-    let mut screen = mbta_countdown::ssd1306_screen::ScreenDisplay::new(0x3c)
-        .unwrap_or_else(|err| panic!("ERROR - ScreenDisplay - {}", err));
 
     let address;
     if clock_type == "TM1637".to_string() {
@@ -53,75 +53,105 @@ fn main() {
     let mut clock;
     clock = mbta_countdown::clocks::Clocks::new(clock_type, clock_brightness, address)
         .unwrap_or_else(|err| panic!("ERROR - clock - {}", err));
-    loop {
-        if quit {
-            break;
-        };
-        let train_times =
-            mbta_countdown::train_time::train_times(&dir_code, &station, &vehicle_code)
-                .unwrap_or_else(|err| panic!("ERROR - train_times - {}", err));
-        if let Some(ref train_times_list) = train_times {
-            screen
-                .display_trains(&train_times_list)
-                .unwrap_or_else(|err| panic!("ERROR - display_trains - {}", err));
-        } else {
-            screen
-                .clear_display(true)
-                .unwrap_or_else(|err| panic!("ERROR - clear_display - {}", err));
-        };
-        // if there are some train times, display on clock and screen
-        if let Some(ref train_times_list) = train_times {
-            for _ in 0..240 {
-                thread::sleep(time::Duration::from_millis(250));
-                clock
-                    .display_time_until(&train_times_list, &minimum_display_min)
-                    .unwrap_or_else(|err| panic!("ERROR - display_time_until - {}", err));
-                let key_input = stdin.next();
-                match key_input {
-                    Some(Ok(b'q')) => {
-                        quit = true;
-                        break;
-                    }
-                    Some(a) => {
-                        write!(
-                            stdout_main,
-                            "{}{}",
-                            termion::cursor::Goto(2, 1),
-                            a.unwrap() as char
-                        )
-                        .unwrap();
-                        stdout_main.flush().unwrap();
-                    }
-                    _ => (),
+    let train_times = Arc::new(Mutex::new(
+        mbta_countdown::train_time::train_times(&dir_code, &station, &vehicle_code)
+            .unwrap_or_else(|err| panic!("ERROR - train_times - {}", err)),
+    ));
+    let train_times_clone = Arc::clone(&train_times);
+    let quit_clone = Arc::clone(&quit);
+    let screen_train_thread = tokio::spawn(async move {
+        let mut train_time_errors = 0u8;
+        let mut screen = mbta_countdown::ssd1306_screen::ScreenDisplay::new(0x3c)
+            .unwrap_or_else(|err| panic!("ERROR - ScreenDisplay - {}", err));
+        loop {
+            if *quit_clone.lock().unwrap() {
+                screen
+                    .clear_display(true)
+                    .unwrap_or_else(|err| panic!("ERROR - clear_display - {}", err));
+                break;
+            };
+            if let Some(ref train_times_list) = *train_times_clone.lock().unwrap() {
+                screen
+                    .display_trains(&train_times_list)
+                    .unwrap_or_else(|err| panic!("ERROR - display_trains - {}", err));
+            } else {
+                screen
+                    .clear_display(true)
+                    .unwrap_or_else(|err| panic!("ERROR - clear_display - {}", err));
+            };
+            for _ in 0..120u8 {
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                if *quit_clone.lock().unwrap() {
+                    screen
+                        .clear_display(true)
+                        .unwrap_or_else(|err| panic!("ERROR - clear_display - {}", err));
+                    break;
                 };
             }
+            if let Ok(new_train_times) =
+                mbta_countdown::train_time::train_times(&dir_code, &station, &vehicle_code)
+            {
+                let mut train_times_unlocked = train_times_clone.lock().unwrap();
+                *train_times_unlocked = new_train_times;
+                train_time_errors = 0;
+            } else {
+                train_time_errors += 1;
+                if train_time_errors == 5 {
+                    panic!("Unable to retrieve train times for 10 minutes");
+                }
+            }
+        }
+    });
+    loop {
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        // if there are some train times, display on clock and screen
+        if let Some(ref train_times_list) = *train_times.lock().unwrap() {
+            clock
+                .display_time_until(&train_times_list, &minimum_display_min)
+                .unwrap_or_else(|err| panic!("ERROR - display_time_until - {}", err));
+            let key_input = stdin.next();
+            match key_input {
+                Some(Ok(b'q')) => {
+                    *quit.lock().unwrap() = true;
+                    break;
+                }
+                Some(a) => {
+                    write!(
+                        stdout_main,
+                        "{}{}",
+                        termion::cursor::Goto(2, 1),
+                        a.unwrap() as char
+                    )
+                    .unwrap();
+                    stdout_main.flush().unwrap();
+                }
+                _ => (),
+            };
         } else {
             clock
                 .clear_display()
                 .unwrap_or_else(|err| panic!("ERROR - clear_display - {}", err));
-            for _ in 0..240 {
-                thread::sleep(time::Duration::from_millis(250));
-                let key_input = stdin.next();
-                match key_input {
-                    Some(Ok(b'q')) => {
-                        quit = true;
-                        break;
-                    }
-                    Some(a) => {
-                        write!(
-                            stdout_main,
-                            "{}{}",
-                            termion::cursor::Goto(2, 1),
-                            a.unwrap() as char
-                        )
-                        .unwrap();
-                        stdout_main.flush().unwrap();
-                    }
-                    _ => (),
-                };
-            }
+            let key_input = stdin.next();
+            match key_input {
+                Some(Ok(b'q')) => {
+                    *quit.lock().unwrap() = true;
+                    break;
+                }
+                Some(a) => {
+                    write!(
+                        stdout_main,
+                        "{}{}",
+                        termion::cursor::Goto(2, 1),
+                        a.unwrap() as char
+                    )
+                    .unwrap();
+                    stdout_main.flush().unwrap();
+                }
+                _ => (),
+            };
         };
     }
+    screen_train_thread.await.unwrap_or_else(|err| panic!("ERROR - train thread - {}", err));
     write!(
         stdout_main,
         "{}{}Finished",
@@ -134,9 +164,6 @@ fn main() {
     println!();
     clock
         .clear_display()
-        .unwrap_or_else(|err| panic!("ERROR - clear_display - {}", err));
-    screen
-        .clear_display(true)
         .unwrap_or_else(|err| panic!("ERROR - clear_display - {}", err));
 }
 
