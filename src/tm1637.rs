@@ -1,14 +1,15 @@
 use chrono;
 use chrono::prelude::*;
-use embedded_hal::blocking::delay::DelayUs;
 use embedded_hal::digital::v2::{InputPin, OutputPin};
 use rppal;
 use std;
+use std::thread::sleep;
+use std::time::Duration;
 
-const FREQUENCY_KHZ: u16 = 50; // 250 max
-const DELAY_USECS: u16 = 1000 / FREQUENCY_KHZ; //USECS_IN_MSEC / MAX_FREQ_KHZ;
+const FREQUENCY_KHZ: u64 = 10; // 250 max
+const DELAY_USECS: u64 = 1000 / FREQUENCY_KHZ; //USECS_IN_MSEC / MAX_FREQ_KHZ;
 
-const ADDRESS_AUTO_INCREMENT_1_MODE: u8 = 0b0100_0000; // 0x40;
+const _ADDRESS_AUTO_INCREMENT_1_MODE: u8 = 0b0100_0000; // 0x40;
 const FIXED_ADDRESS_MODE: u8 = 0b0100_0100; // 0x40;
 
 //      A
@@ -37,7 +38,7 @@ const BINS: [u8; 16] = [
     0b0011_1001,
     0b0101_1110,
     0b0111_1001,
-    0b011_10001,
+    0b0111_0001,
 ];
 
 const DISPLAY_ADDRESS: [u8; 4] = [0b1100_0000, 0b1100_0001, 0b1100_0010, 0b1100_0011];
@@ -58,7 +59,7 @@ const DISPLAY_BRIGHTNESS: [u8; 8] = [
 
 /// A struct to hold the display along with the digits for each location
 pub struct ClockDisplay {
-    display: TM1637<rppal::gpio::OutputPin, rppal::gpio::OutputPin, rppal::hal::Delay>,
+    display: TM1637<rppal::gpio::OutputPin, rppal::gpio::OutputPin>,
     minutes_ten: Option<usize>,
     minutes_single: Option<usize>,
     seconds_ten: Option<usize>,
@@ -71,14 +72,11 @@ impl ClockDisplay {
     /// Creates a new ClockDisplay struct
     pub fn new(clock_brightness: u8) -> Result<ClockDisplay, Box<dyn std::error::Error>> {
         // create new i2c interface
-        let delay = rppal::hal::Delay::new();
-        // let mut us_delay = delay.delay_us(100u8);
         let gpio = rppal::gpio::Gpio::new()?;
         let clk_pin = gpio.get(22)?.into_output();
         let dio_pin = gpio.get(27)?.into_output();
         // connect the ht16k33 clock chip to i2c connection on the address
-        let mut clock = TM1637::new(clk_pin, dio_pin, delay);
-        clock.clear().unwrap();
+        let clock = TM1637::new(clk_pin, dio_pin);
         // return ClockDisplay struct with empty digits to be filled later
         Ok(ClockDisplay {
             display: clock,
@@ -152,7 +150,7 @@ impl ClockDisplay {
                 self.display_nums()?;
             } else {
                 // else change only the values that have changed
-                self.display.init(FIXED_ADDRESS_MODE).unwrap();
+                self.display.command_one(FIXED_ADDRESS_MODE).unwrap();
                 if Some(first) != self.minutes_ten {
                     self.display
                         .print_raw(DISPLAY_ADDRESS[0], BINS[first])
@@ -181,7 +179,7 @@ impl ClockDisplay {
                     self.seconds_single = Some(fourth);
                 }
                 self.display
-                    .turn_on_and_set_brightness(self.brightness)
+                    .command_three_control_display(self.brightness)
                     .unwrap();
             }
         } else {
@@ -199,7 +197,7 @@ impl ClockDisplay {
         self.seconds_ten = None;
         self.seconds_single = None;
         // clear the display buffer then push to clock to create a clear clock
-        self.display.init(FIXED_ADDRESS_MODE).unwrap();
+        self.display.command_one(FIXED_ADDRESS_MODE).unwrap();
         self.display
             .print_raw(DISPLAY_ADDRESS[0], 0b0000_0000)
             .unwrap();
@@ -212,9 +210,10 @@ impl ClockDisplay {
         self.display
             .print_raw(DISPLAY_ADDRESS[3], 0b0000_0000)
             .unwrap();
-        self.display
-            .turn_on_and_set_brightness(self.brightness)
-            .unwrap();
+        self.display.command_three_turn_off().unwrap();
+        // self.display
+        //     .command_three_control_display(self.brightness)
+        //     .unwrap();
         Ok(())
     }
 
@@ -222,7 +221,7 @@ impl ClockDisplay {
     fn display_nums(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         // Retrieve a vec! of leds that need to be turned on for the numbers
         // Then turn them on
-        self.display.init(FIXED_ADDRESS_MODE).unwrap();
+        self.display.command_one(FIXED_ADDRESS_MODE).unwrap();
         if let Some(minutes_ten) = self.minutes_ten {
             self.display
                 .print_raw(DISPLAY_ADDRESS[0], BINS[minutes_ten])
@@ -247,7 +246,7 @@ impl ClockDisplay {
                 .unwrap();
         }
         self.display
-            .turn_on_and_set_brightness(self.brightness)
+            .command_three_control_display(self.brightness)
             .unwrap();
         return Ok(());
     }
@@ -267,10 +266,9 @@ impl<E> From<E> for Error<E> {
 
 type Res<E> = Result<(), Error<E>>;
 
-pub struct TM1637<CLK, DIO, D> {
+pub struct TM1637<CLK, DIO> {
     clk: CLK,
     dio: DIO,
-    delay: D,
 }
 
 enum Bit {
@@ -278,17 +276,16 @@ enum Bit {
     ONE,
 }
 
-impl<CLK, DIO, D, E> TM1637<CLK, DIO, D>
+impl<CLK, DIO, E> TM1637<CLK, DIO>
 where
     CLK: OutputPin<Error = E>,
     DIO: InputPin<Error = E> + OutputPin<Error = E>,
-    D: DelayUs<u16>,
 {
-    pub fn new(clk: CLK, dio: DIO, delay: D) -> Self {
-        Self { clk, dio, delay }
+    pub fn new(clk: CLK, dio: DIO) -> Self {
+        Self { clk, dio }
     }
 
-    pub fn init(&mut self, mode: u8) -> Res<E> {
+    pub fn command_one(&mut self, mode: u8) -> Res<E> {
         self.start()?;
         self.send(mode)?;
         self.stop()?;
@@ -296,38 +293,17 @@ where
         Ok(())
     }
 
-    pub fn clear(&mut self) -> Res<E> {
-        self.init(ADDRESS_AUTO_INCREMENT_1_MODE)?;
-        self.print_raw_iter(0, core::iter::repeat(0).take(4))?;
-        self.start()?;
-        self.send(TURN_OFF)?;
-        self.stop()?;
-        Ok(())
-    }
-
     pub fn print_raw(&mut self, address: u8, byte: u8) -> Res<E> {
         self.start()?;
+        // send command 2
         self.send(address)?;
+        // send data command
         self.send(byte)?;
         self.stop()?;
         Ok(())
     }
 
-    pub fn print_raw_iter<Iter: Iterator<Item = u8>>(
-        &mut self,
-        address: u8,
-        bytes: Iter,
-    ) -> Res<E> {
-        self.start()?;
-        self.send(address)?;
-        for byte in bytes {
-            self.send(byte)?;
-        }
-        self.stop()?;
-        Ok(())
-    }
-
-    pub fn turn_on_and_set_brightness(&mut self, level: usize) -> Res<E> {
+    pub fn command_three_control_display(&mut self, level: usize) -> Res<E> {
         self.start()?;
         self.send(DISPLAY_BRIGHTNESS[level])?;
         self.stop()?;
@@ -335,7 +311,7 @@ where
         Ok(())
     }
 
-    pub fn turn_off(&mut self) -> Res<E> {
+    pub fn command_three_turn_off(&mut self) -> Res<E> {
         self.start()?;
         self.send(TURN_OFF)?;
         self.stop()?;
@@ -352,12 +328,20 @@ where
         }
 
         // Wait for the ACK
-        self.send_bit_and_delay(Bit::ONE)?;
-        for _ in 0..255 {
+        self.clk.set_low()?;
+        self.short_delay();
+        // self.dio.set_low()?;
+        // self.delay();
+        self.dio.set_high()?;
+        self.long_delay();
+        self.clk.set_high()?;
+        self.delay();
+        for _ in 0..10 {
             if self.dio.is_low()? {
                 return Ok(());
             }
-            self.delay();
+            let short_delay = DELAY_USECS / 10;
+            sleep(Duration::from_micros(short_delay));
         }
 
         // println!("Ack failed");
@@ -366,14 +350,21 @@ where
     }
 
     fn start(&mut self) -> Res<E> {
-        self.send_bit_and_delay(Bit::ONE)?;
+        self.dio.set_high()?;
+        self.clk.set_high()?;
+        self.delay();
         self.dio.set_low()?;
-
+        self.delay();
         Ok(())
     }
 
     fn stop(&mut self) -> Res<E> {
-        self.send_bit_and_delay(Bit::ZERO)?;
+        self.clk.set_low()?;
+        self.short_delay();
+        self.dio.set_low()?;
+        self.long_delay();
+        self.clk.set_high()?;
+        self.delay();
         self.dio.set_high()?;
         self.delay();
 
@@ -382,11 +373,13 @@ where
 
     fn send_bit_and_delay(&mut self, value: Bit) -> Res<E> {
         self.clk.set_low()?;
+        self.short_delay();
         if let Bit::ONE = value {
             self.dio.set_high()?;
         } else {
             self.dio.set_low()?;
         }
+        self.long_delay();
         self.clk.set_high()?;
         self.delay();
 
@@ -394,6 +387,16 @@ where
     }
 
     fn delay(&mut self) {
-        self.delay.delay_us(DELAY_USECS);
+        sleep(Duration::from_micros(DELAY_USECS));
+    }
+
+    fn short_delay(&mut self) {
+        let delay_time = DELAY_USECS / 10;
+        sleep(Duration::from_micros(delay_time));
+    }
+
+    fn long_delay(&mut self) {
+        let delay_time = DELAY_USECS * 9 / 10;
+        sleep(Duration::from_micros(delay_time));
     }
 }
