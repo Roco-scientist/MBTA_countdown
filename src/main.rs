@@ -1,5 +1,6 @@
 use clap::{App, Arg};
 use mbta_countdown;
+use rppal::gpio;
 use std;
 use std::{
     collections::HashMap,
@@ -42,7 +43,22 @@ async fn main() {
 
     // set quit to false to have a clean quit
     let quit = Arc::new(Mutex::new(false));
+    let shutdown = Arc::new(Mutex::new(false));
 
+    let gpio = gpio::Gpio::new().unwrap_or_else(|err| panic!("ERROR - gpio - {}", err));
+    let mut shutdown_pin = gpio
+        .get(21)
+        .unwrap_or_else(|err| panic!("ERROR - pin - {}", err))
+        .into_input();
+
+    let quit_clone = Arc::clone(&quit);
+    let shutdown_clone = Arc::clone(&shutdown);
+    shutdown_pin
+        .set_async_interrupt(gpio::Trigger::RisingEdge, move |_| {
+            *quit_clone.lock().unwrap() = true;
+            *shutdown_clone.lock().unwrap() = true;
+        })
+        .unwrap();
 
     let address;
     if clock_type == "TM1637".to_string() {
@@ -151,7 +167,11 @@ async fn main() {
             };
         };
     }
-    screen_train_thread.await.unwrap_or_else(|err| panic!("ERROR - train thread - {}", err));
+
+    screen_train_thread
+        .await
+        .unwrap_or_else(|err| panic!("ERROR - train thread - {}", err));
+
     write!(
         stdout_main,
         "{}{}Finished",
@@ -159,12 +179,22 @@ async fn main() {
         termion::cursor::Show
     )
     .unwrap();
+
     stdout_main.flush().unwrap();
     drop(stdout_main);
     println!();
+
     clock
         .clear_display()
         .unwrap_or_else(|err| panic!("ERROR - clear_display - {}", err));
+
+    if *shutdown.lock().unwrap() {
+        Command::new("shutdown")
+            .arg("-h")
+            .arg("now")
+            .output()
+            .unwrap();
+    }
 }
 
 /// Gets the command line arguments
