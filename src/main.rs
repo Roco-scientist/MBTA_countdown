@@ -5,6 +5,7 @@ use std;
 use std::{
     collections::HashMap,
     io::{stdout, Read, Write},
+    process::{exit, Command},
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -303,7 +304,7 @@ pub fn arguments() -> Result<(String, String, u8, String, String), Box<dyn std::
         println!("Updating MBTA info");
         mbta_countdown::mbta_info::all_mbta_info(true)?;
         println!("Finished updating MBTA info");
-        std::process::exit(0i32);
+        exit(0i32);
     }
 
     let clock_type = args.value_of("clock_type").unwrap().to_string();
