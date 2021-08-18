@@ -1,9 +1,12 @@
 use clap::{App, Arg};
+use futures::executor::block_on;
 use mbta_countdown;
-use std;
+use rppal::gpio;
 use std::{
     collections::HashMap,
+    error,
     io::{stdout, Read, Write},
+    process::{exit, Command},
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -42,7 +45,22 @@ async fn main() {
 
     // set quit to false to have a clean quit
     let quit = Arc::new(Mutex::new(false));
+    let shutdown = Arc::new(Mutex::new(false));
 
+    let gpio = gpio::Gpio::new().unwrap_or_else(|err| panic!("ERROR - gpio - {}", err));
+    let mut shutdown_pin = gpio
+        .get(21)
+        .unwrap_or_else(|err| panic!("ERROR - pin - {}", err))
+        .into_input();
+
+    let quit_clone = Arc::clone(&quit);
+    let shutdown_clone = Arc::clone(&shutdown);
+    shutdown_pin
+        .set_async_interrupt(gpio::Trigger::FallingEdge, move |_| {
+            *quit_clone.lock().unwrap() = true;
+            *shutdown_clone.lock().unwrap() = true;
+        })
+        .unwrap();
 
     let address;
     if clock_type == "TM1637".to_string() {
@@ -55,6 +73,7 @@ async fn main() {
         .unwrap_or_else(|err| panic!("ERROR - clock - {}", err));
     let train_times = Arc::new(Mutex::new(
         mbta_countdown::train_time::train_times(&dir_code, &station, &vehicle_code)
+            .await
             .unwrap_or_else(|err| panic!("ERROR - train_times - {}", err)),
     ));
     let train_times_clone = Arc::clone(&train_times);
@@ -89,7 +108,7 @@ async fn main() {
                 };
             }
             if let Ok(new_train_times) =
-                mbta_countdown::train_time::train_times(&dir_code, &station, &vehicle_code)
+                mbta_countdown::train_time::train_times(&dir_code, &station, &vehicle_code).await
             {
                 let mut train_times_unlocked = train_times_clone.lock().unwrap();
                 *train_times_unlocked = new_train_times;
@@ -151,7 +170,9 @@ async fn main() {
             };
         };
     }
-    screen_train_thread.await.unwrap_or_else(|err| panic!("ERROR - train thread - {}", err));
+    screen_train_thread
+        .await
+        .unwrap_or_else(|err| panic!("ERROR - train thread - {}", err));
     write!(
         stdout_main,
         "{}{}Finished",
@@ -165,10 +186,17 @@ async fn main() {
     clock
         .clear_display()
         .unwrap_or_else(|err| panic!("ERROR - clear_display - {}", err));
+    if *shutdown.lock().unwrap() {
+        Command::new("shutdown")
+            .arg("-h")
+            .arg("now")
+            .output()
+            .unwrap();
+    }
 }
 
 /// Gets the command line arguments
-pub fn arguments() -> Result<(String, String, u8, String, String), Box<dyn std::error::Error>> {
+pub fn arguments() -> Result<(String, String, u8, String, String), Box<dyn error::Error>> {
     // get station and vehicle conversions for the MBTA API
     let (vehicle_info, station_info) = mbta_countdown::mbta_info::all_mbta_info(false)?;
     // get a list of stations to limit the station argument input
@@ -273,7 +301,7 @@ pub fn arguments() -> Result<(String, String, u8, String, String), Box<dyn std::
         println!("Updating MBTA info");
         mbta_countdown::mbta_info::all_mbta_info(true)?;
         println!("Finished updating MBTA info");
-        std::process::exit(0i32);
+        exit(0i32);
     }
 
     let clock_type = args.value_of("clock_type").unwrap().to_string();

@@ -1,24 +1,26 @@
-extern crate chrono;
-extern crate reqwest;
-extern crate serde_json;
-extern crate std;
-
+use reqwest;
+use std;
 use chrono::prelude::*;
 use chrono::{DateTime, Local, TimeZone};
+use futures::try_join;
 use serde_json::Value;
 use std::collections::HashMap;
 
-/// Main function to retrieve train times from Forest Hills Station for inbound commuter rail
-pub fn train_times(
+// Main function to retrieve train times from Forest Hills Station for inbound commuter rail
+pub async fn train_times(
     dir_code: &str,
     station: &str,
     route_code: &str,
 ) -> Result<Option<Vec<DateTime<Local>>>, Box<dyn std::error::Error>> {
     // get prediction times
-    let prediction_times = get_prediction_times(station, dir_code, route_code)?;
+    let prediction_times_task = get_prediction_times(station, dir_code, route_code);
     // get schuduled times, if None, create empty hashmap
-    let mut scheduled_times =
-        get_scheduled_times(station, dir_code, route_code)?.unwrap_or(HashMap::new());
+    let scheduled_times_task =
+        get_scheduled_times(station, dir_code, route_code);
+    let prediction_times = prediction_times_task.await?;
+    let mut scheduled_times = scheduled_times_task.await?.unwrap_or(HashMap::new());
+    // let (prediction_times, scheduled_times_start) = try_join!(prediction_times_task, scheduled_times_task)?;
+    // let mut scheduled_times = scheduled_times_start.unwrap_or(HashMap::new());
     // if there are predicted times, replace the scheduled times with the more accurate predicted
     // tiem
     if let Some(pred_times) = prediction_times {
@@ -51,34 +53,34 @@ pub fn train_times(
 }
 
 /// Retreived MBTA predicted times with their API
-fn get_prediction_times(
+async fn get_prediction_times(
     station: &str,
     dir_code: &str,
     route_code: &str,
 ) -> Result<Option<HashMap<String, DateTime<Local>>>, Box<dyn std::error::Error>> {
     // MBTA API for predicted times
     let address = format!("https://api-v3.mbta.com/predictions?filter[stop]={}&filter[direction_id]={}&include=stop&filter[route]={}", station, dir_code, route_code);
-    return get_route_times(address);
+    return get_route_times(address).await;
 }
 
 /// Retreived MBTA scheduled times with their API
-fn get_scheduled_times(
+async fn get_scheduled_times(
     station: &str,
     dir_code: &str,
     route_code: &str,
 ) -> Result<Option<HashMap<String, DateTime<Local>>>, Box<dyn std::error::Error>> {
-    let now = chrono::Local::now();
+    let now = Local::now();
     // MBTA API for scheduled times
     let address = format!("https://api-v3.mbta.com/schedules?include=route,trip,stop&filter[min_time]={}%3A{}&filter[stop]={}&filter[route]={}&filter[direction_id]={}",now.hour(), now.minute(), station, route_code, dir_code);
-    return get_route_times(address);
+    return get_route_times(address).await;
 }
 
 /// Retreives the JSON from MBTA API and parses it into a hasmap
-fn get_route_times(
+async fn get_route_times(
     address: String,
 ) -> Result<Option<HashMap<String, DateTime<Local>>>, Box<dyn std::error::Error>> {
     // retrieve the routes with the MBTA API returning a converted JSON format
-    let routes_json: Value = reqwest::blocking::get(&address)?.json()?;
+    let routes_json: Value = reqwest::get(&address).await?.json().await?;
     // only interested in the "data" field
     let data_option = routes_json.get("data");
     // if there is a "data" field, proceed
@@ -86,7 +88,7 @@ fn get_route_times(
         // if the "data" field is an array, proceed
         if let Some(data_array) = data.as_array() {
             // create a new HashMap to put int trip_id and departure time
-            let mut commuter_rail_dep_time: HashMap<String, chrono::DateTime<Local>> =
+            let mut commuter_rail_dep_time: HashMap<String, DateTime<Local>> =
                 HashMap::new();
             // for each train in the data array, insert the trip_id and departure time
             for train in data_array {
