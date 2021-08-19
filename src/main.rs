@@ -1,9 +1,11 @@
 use clap::{App, Arg};
 use mbta_countdown;
+use rppal::gpio;
 use std;
 use std::{
     collections::HashMap,
     io::{stdout, Read, Write},
+    process::{exit, Command},
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -42,7 +44,22 @@ async fn main() {
 
     // set quit to false to have a clean quit
     let quit = Arc::new(Mutex::new(false));
+    let shutdown = Arc::new(Mutex::new(false));
 
+    let gpio = gpio::Gpio::new().unwrap_or_else(|err| panic!("ERROR - gpio - {}", err));
+    let mut shutdown_pin = gpio
+        .get(13)
+        .unwrap_or_else(|err| panic!("ERROR - pin - {}", err))
+        .into_input_pulldown();
+
+    let quit_clone = Arc::clone(&quit);
+    let shutdown_clone = Arc::clone(&shutdown);
+    shutdown_pin
+        .set_async_interrupt(gpio::Trigger::RisingEdge, move |_| {
+            *quit_clone.lock().unwrap() = true;
+            *shutdown_clone.lock().unwrap() = true;
+        })
+        .unwrap();
 
     let address;
     if clock_type == "TM1637".to_string() {
@@ -103,6 +120,9 @@ async fn main() {
         }
     });
     loop {
+        if *quit.lock().unwrap() {
+            break;
+        };
         tokio::time::sleep(Duration::from_millis(250)).await;
         // if there are some train times, display on clock and screen
         if let Some(ref train_times_list) = *train_times.lock().unwrap() {
@@ -151,7 +171,11 @@ async fn main() {
             };
         };
     }
-    screen_train_thread.await.unwrap_or_else(|err| panic!("ERROR - train thread - {}", err));
+
+    screen_train_thread
+        .await
+        .unwrap_or_else(|err| panic!("ERROR - train thread - {}", err));
+
     write!(
         stdout_main,
         "{}{}Finished",
@@ -159,12 +183,23 @@ async fn main() {
         termion::cursor::Show
     )
     .unwrap();
+
     stdout_main.flush().unwrap();
     drop(stdout_main);
     println!();
+
     clock
         .clear_display()
         .unwrap_or_else(|err| panic!("ERROR - clear_display - {}", err));
+
+    if *shutdown.lock().unwrap() {
+        println!("Shutting down");
+        Command::new("shutdown")
+            .arg("-h")
+            .arg("now")
+            .output()
+            .unwrap();
+    }
 }
 
 /// Gets the command line arguments
@@ -273,7 +308,7 @@ pub fn arguments() -> Result<(String, String, u8, String, String), Box<dyn std::
         println!("Updating MBTA info");
         mbta_countdown::mbta_info::all_mbta_info(true)?;
         println!("Finished updating MBTA info");
-        std::process::exit(0i32);
+        exit(0i32);
     }
 
     let clock_type = args.value_of("clock_type").unwrap().to_string();
