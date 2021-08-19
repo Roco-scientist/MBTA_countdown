@@ -48,9 +48,9 @@ async fn main() {
 
     let gpio = gpio::Gpio::new().unwrap_or_else(|err| panic!("ERROR - gpio - {}", err));
     let mut shutdown_pin = gpio
-        .get(21)
+        .get(13)
         .unwrap_or_else(|err| panic!("ERROR - pin - {}", err))
-        .into_input();
+        .into_input_pulldown();
 
     let quit_clone = Arc::clone(&quit);
     let shutdown_clone = Arc::clone(&shutdown);
@@ -120,6 +120,9 @@ async fn main() {
         }
     });
     loop {
+        if *quit.lock().unwrap() {
+            break;
+        };
         tokio::time::sleep(Duration::from_millis(250)).await;
         // if there are some train times, display on clock and screen
         if let Some(ref train_times_list) = *train_times.lock().unwrap() {
@@ -190,6 +193,7 @@ async fn main() {
         .unwrap_or_else(|err| panic!("ERROR - clear_display - {}", err));
 
     if *shutdown.lock().unwrap() {
+        println!("Shutting down");
         Command::new("shutdown")
             .arg("-h")
             .arg("now")
