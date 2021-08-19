@@ -1,19 +1,16 @@
-extern crate chrono;
-extern crate reqwest;
-extern crate serde_json;
-extern crate std;
-
+use chrono;
 use chrono::prelude::*;
 use chrono::{DateTime, Local, TimeZone};
+use reqwest;
 use serde_json::Value;
-use std::collections::HashMap;
+use std::{collections::HashMap, error::Error};
 
 /// Main function to retrieve train times from Forest Hills Station for inbound commuter rail
 pub fn train_times(
     dir_code: &str,
     station: &str,
     route_code: &str,
-) -> Result<Option<Vec<DateTime<Local>>>, Box<dyn std::error::Error>> {
+) -> Result<Option<Vec<DateTime<Local>>>, Box<dyn Error>> {
     // get prediction times
     let prediction_times = get_prediction_times(station, dir_code, route_code)?;
     // get schuduled times, if None, create empty hashmap
@@ -55,7 +52,7 @@ fn get_prediction_times(
     station: &str,
     dir_code: &str,
     route_code: &str,
-) -> Result<Option<HashMap<String, DateTime<Local>>>, Box<dyn std::error::Error>> {
+) -> Result<Option<HashMap<String, DateTime<Local>>>, Box<dyn Error>> {
     // MBTA API for predicted times
     let address = format!("https://api-v3.mbta.com/predictions?filter[stop]={}&filter[direction_id]={}&include=stop&filter[route]={}", station, dir_code, route_code);
     return get_route_times(address);
@@ -66,7 +63,7 @@ fn get_scheduled_times(
     station: &str,
     dir_code: &str,
     route_code: &str,
-) -> Result<Option<HashMap<String, DateTime<Local>>>, Box<dyn std::error::Error>> {
+) -> Result<Option<HashMap<String, DateTime<Local>>>, Box<dyn Error>> {
     let now = chrono::Local::now();
     // MBTA API for scheduled times
     let address = format!("https://api-v3.mbta.com/schedules?include=route,trip,stop&filter[min_time]={}%3A{}&filter[stop]={}&filter[route]={}&filter[direction_id]={}",now.hour(), now.minute(), station, route_code, dir_code);
@@ -76,7 +73,7 @@ fn get_scheduled_times(
 /// Retreives the JSON from MBTA API and parses it into a hasmap
 fn get_route_times(
     address: String,
-) -> Result<Option<HashMap<String, DateTime<Local>>>, Box<dyn std::error::Error>> {
+) -> Result<Option<HashMap<String, DateTime<Local>>>, Box<dyn Error>> {
     // retrieve the routes with the MBTA API returning a converted JSON format
     let routes_json: Value = reqwest::blocking::get(&address)?.json()?;
     // only interested in the "data" field
