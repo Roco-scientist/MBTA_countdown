@@ -1,3 +1,5 @@
+use chrono::prelude::*;
+use chrono::Local;
 use clap::{App, Arg};
 use mbta_countdown;
 use rppal::gpio;
@@ -42,18 +44,20 @@ async fn main() {
     .unwrap();
     stdout_main.flush().unwrap();
 
-    // set quit to false to have a clean quit
-    let quit = Arc::new(Mutex::new(false));
-    let shutdown = Arc::new(Mutex::new(false));
+    // setup variables that are passed between threads
+    let quit = Arc::new(Mutex::new(false)); // set quit to false to have a clean quit
+    let shutdown = Arc::new(Mutex::new(false)); // shutdown varaible passed after button press
 
+    // clone quit and shutdown variable to put into async thread for button
+    let quit_clone = Arc::clone(&quit);
+    let shutdown_clone = Arc::clone(&shutdown);
+
+    // setup async interrup which shuts down the device if bthe button is pressed
     let gpio = gpio::Gpio::new().unwrap_or_else(|err| panic!("ERROR - gpio - {}", err));
     let mut shutdown_pin = gpio
         .get(13)
         .unwrap_or_else(|err| panic!("ERROR - pin - {}", err))
         .into_input_pulldown();
-
-    let quit_clone = Arc::clone(&quit);
-    let shutdown_clone = Arc::clone(&shutdown);
     shutdown_pin
         .set_async_interrupt(gpio::Trigger::RisingEdge, move |_| {
             *quit_clone.lock().unwrap() = true;
@@ -61,26 +65,89 @@ async fn main() {
         })
         .unwrap();
 
+    // setup countdown clock.  If the type is not TM1637, the I2C address is used, otherwise it is
+    // bit banged
     let address;
     if clock_type == "TM1637".to_string() {
         address = None;
     } else {
         address = Some(0x70)
     }
+    // Initiate the countdown clock
     let mut clock;
     clock = mbta_countdown::clocks::Clocks::new(clock_type, clock_brightness, address)
         .unwrap_or_else(|err| panic!("ERROR - clock - {}", err));
+
+    // Get the scheduled and predicted train times to display and countdown from
     let train_times = Arc::new(Mutex::new(
         mbta_countdown::train_time::train_times(&dir_code, &station, &vehicle_code)
             .unwrap_or_else(|err| panic!("ERROR - train_times - {}", err)),
     ));
+
+    // get the first and last train for the day to know when to pause the displays and not
+    // continually update when there are no trains arriving
+    let last_first = mbta_countdown::train_time::max_min_times(&dir_code, &station, &vehicle_code)
+        .unwrap_or_else(|err| panic!("Error - max min times - {}", err));
+    let last_time_arc;
+    let first_time_arc;
+    if let Some([last_time, first_time]) = last_first {
+        last_time_arc = Arc::new(Mutex::new(last_time));
+        first_time_arc = Arc::new(Mutex::new(first_time));
+        // println!("First: {}\nLast: {}", first_time, last_time);
+    } else {
+        panic!("Missing vehicles")
+    };
+
+    // Clone last and first train time to pass into the thread
+    let last_time_arc_clone = Arc::clone(&last_time_arc);
+    let first_time_arc_clone = Arc::clone(&first_time_arc);
+
+    let now = Arc::new(Mutex::new(Local::now()));
+    let now_clone = Arc::clone(&now);
+
     let train_times_clone = Arc::clone(&train_times);
     let quit_clone = Arc::clone(&quit);
+
+    let pause_overnight = Arc::new(Mutex::new(false));
+    let pause_overnight_clone = Arc::clone(&pause_overnight);
+
     let screen_train_thread = tokio::spawn(async move {
         let mut train_time_errors = 0u8;
         let mut screen = mbta_countdown::ssd1306_screen::ScreenDisplay::new(0x3c)
             .unwrap_or_else(|err| panic!("ERROR - ScreenDisplay - {}", err));
         loop {
+            if *now_clone.lock().unwrap() > *last_time_arc_clone.lock().unwrap() {
+                *pause_overnight_clone.lock().unwrap() = true;
+                while now_clone.lock().unwrap().hour() < 3
+                    || now_clone.lock().unwrap().hour() == 24
+                    || now_clone.lock().unwrap().day() == last_time_arc_clone.lock().unwrap().day()
+                {
+                    tokio::time::sleep(Duration::from_secs(300)).await;
+                    *now_clone.lock().unwrap() = Local::now();
+                    if *quit_clone.lock().unwrap() {
+                        break;
+                    };
+                }
+                let last_first_thread =
+                    mbta_countdown::train_time::max_min_times(&dir_code, &station, &vehicle_code)
+                        .unwrap_or_else(|err| panic!("Error - max min times - {}", err));
+                if let Some([last_time, first_time]) = last_first_thread {
+                    *last_time_arc_clone.lock().unwrap() = last_time;
+                    *first_time_arc_clone.lock().unwrap() = first_time;
+                } else {
+                    panic!("Missing vehicles")
+                };
+                let one_hour = first_time_arc_clone.lock().unwrap().hour() - 1;
+                while now_clone.lock().unwrap().hour() < one_hour {
+                    tokio::time::sleep(Duration::from_secs(300)).await;
+                    *now_clone.lock().unwrap() = Local::now();
+                    if *quit_clone.lock().unwrap() {
+                        break;
+                    };
+                }
+                *pause_overnight_clone.lock().unwrap() = false;
+            };
+
             if *quit_clone.lock().unwrap() {
                 screen
                     .clear_display(true)
@@ -120,6 +187,24 @@ async fn main() {
         }
     });
     loop {
+        while *pause_overnight.lock().unwrap() {
+            tokio::time::sleep(Duration::from_secs(300)).await;
+            write!(
+                stdout_main,
+                "{}Paused",
+                termion::cursor::Goto(1, 3),
+            )
+            .unwrap();
+            if *quit.lock().unwrap() {
+                break;
+            };
+        }
+        write!(
+            stdout_main,
+            "{}      ",
+            termion::cursor::Goto(1, 3),
+        )
+        .unwrap();
         if *quit.lock().unwrap() {
             break;
         };

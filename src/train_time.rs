@@ -15,7 +15,7 @@ pub fn train_times(
     let prediction_times = get_prediction_times(station, dir_code, route_code)?;
     // get schuduled times, if None, create empty hashmap
     let mut scheduled_times =
-        get_scheduled_times(station, dir_code, route_code)?.unwrap_or(HashMap::new());
+        get_scheduled_times(station, dir_code, route_code, true)?.unwrap_or(HashMap::new());
     // if there are predicted times, replace the scheduled times with the more accurate predicted
     // tiem
     if let Some(pred_times) = prediction_times {
@@ -47,6 +47,27 @@ pub fn train_times(
     return Ok(Some(all_times));
 }
 
+pub fn max_min_times(
+    dir_code: &str,
+    station: &str,
+    route_code: &str,
+) -> Result<Option<[DateTime<Local>; 2]>, Box<dyn Error>> {
+    if let Some(scheduled_times) = get_scheduled_times(station, dir_code, route_code, true)? {
+        let mut all_times = scheduled_times
+            .values()
+            .map(|date| date.clone())
+            .collect::<Vec<DateTime<Local>>>();
+        all_times.sort();
+        if let Some(last_vehicle) = all_times.last() {
+            return Ok(Some([*last_vehicle, all_times[0]]));
+        } else {
+            return Ok(None);
+        }
+    } else {
+        return Ok(None);
+    };
+}
+
 /// Retreived MBTA predicted times with their API
 fn get_prediction_times(
     station: &str,
@@ -63,10 +84,16 @@ fn get_scheduled_times(
     station: &str,
     dir_code: &str,
     route_code: &str,
+    filter_time: bool,
 ) -> Result<Option<HashMap<String, DateTime<Local>>>, Box<dyn Error>> {
-    let now = chrono::Local::now();
-    // MBTA API for scheduled times
-    let address = format!("https://api-v3.mbta.com/schedules?include=route,trip,stop&filter[min_time]={}%3A{}&filter[stop]={}&filter[route]={}&filter[direction_id]={}",now.hour(), now.minute(), station, route_code, dir_code);
+    let address;
+    if filter_time {
+        let now = chrono::Local::now();
+        // MBTA API for scheduled times
+        address = format!("https://api-v3.mbta.com/schedules?include=route,trip,stop&filter[min_time]={}%3A{}&filter[stop]={}&filter[route]={}&filter[direction_id]={}",now.hour(), now.minute(), station, route_code, dir_code);
+    } else {
+        address = format!("https://api-v3.mbta.com/schedules?include=route,trip,stop&filter[stop]={}&filter[route]={}&filter[direction_id]={}", station, route_code, dir_code);
+    }
     return get_route_times(address);
 }
 
