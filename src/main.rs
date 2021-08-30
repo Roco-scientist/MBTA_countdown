@@ -5,6 +5,7 @@ use mbta_countdown;
 use rppal::gpio;
 use std;
 use std::{
+    cmp,
     collections::HashMap,
     io::{stdout, Read, Write},
     process::{exit, Command},
@@ -165,19 +166,41 @@ async fn main() {
                 break;
             };
 
+            // setting up the amount of seconds to pause between fetching and updating train data.
+            // Currently setup to pause for 1/10th the time between now and the next train.  If
+            // there are no trains, there is a 600 second pause before updating.  There is also a 15
+            // second minimum pause time setup with the max statement below
+            let pause_seconds;
             // if there are train times, display them on the screen, otherwise clear the display
             if let Some(ref train_times_list) = *train_times_clone.lock().unwrap() {
                 screen
                     .display_trains(&train_times_list)
                     .unwrap_or_else(|err| panic!("ERROR - display_trains - {}", err));
+                // make sure the train time is greater than now to prevent a negative train
+                // difference
+                if train_times_list[0] > now {
+                    let time_sec_diff = (train_times_list[0] - now).num_seconds();
+                    pause_seconds = cmp::max(time_sec_diff / 10, 15);
+                } else {
+                    // if the first vehicle time already passed go to the second
+                    if train_times_list.len() > 1 {
+                        let time_sec_diff = (train_times_list[0] - now).num_seconds();
+                        pause_seconds = cmp::max(time_sec_diff / 10, 15);
+                    } else {
+                        // if there are no trains later than now, setup pause time to 600 seconds
+                        pause_seconds = 600;
+                    }
+                }
             } else {
                 screen
                     .clear_display(true)
                     .unwrap_or_else(|err| panic!("ERROR - clear_display - {}", err));
+                // if there are no trains, setup the pause time to 600 seconds
+                pause_seconds = 600;
             };
 
             // async pause for 120 seconds donw in single seconds for a clean quit
-            for _ in 0..120u8 {
+            for _ in 0..pause_seconds {
                 tokio::time::sleep(Duration::from_secs(1)).await;
                 if *quit_clone.lock().unwrap() {
                     screen
@@ -209,6 +232,8 @@ async fn main() {
         while *pause_overnight.lock().unwrap() {
             tokio::time::sleep(Duration::from_secs(300)).await;
             // write!(stdout_main, "{}Paused", termion::cursor::Goto(1, 3),).unwrap();
+
+            // if q input, cleanly exit
             let key_input = stdin.next();
             match key_input {
                 Some(Ok(b'q')) => {
@@ -219,7 +244,7 @@ async fn main() {
                     write!(
                         stdout_main,
                         "{}{}",
-                        termion::cursor::Goto(2, 1),
+                        termion::cursor::Goto(1, 2),
                         a.unwrap() as char
                     )
                     .unwrap();
@@ -227,6 +252,7 @@ async fn main() {
                 }
                 _ => (),
             };
+            write!(stdout_main, "{}      ", termion::cursor::Goto(1, 3),).unwrap();
             println!("Paused");
         }
         write!(stdout_main, "{}      ", termion::cursor::Goto(1, 3),).unwrap();
@@ -239,6 +265,8 @@ async fn main() {
             clock
                 .display_time_until(&train_times_list, &minimum_display_min)
                 .unwrap_or_else(|err| panic!("ERROR - display_time_until - {}", err));
+
+            // if q input, cleanly exit
             let key_input = stdin.next();
             match key_input {
                 Some(Ok(b'q')) => {
@@ -249,7 +277,7 @@ async fn main() {
                     write!(
                         stdout_main,
                         "{}{}",
-                        termion::cursor::Goto(2, 1),
+                        termion::cursor::Goto(1, 2),
                         a.unwrap() as char
                     )
                     .unwrap();
@@ -261,6 +289,8 @@ async fn main() {
             clock
                 .clear_display()
                 .unwrap_or_else(|err| panic!("ERROR - clear_display - {}", err));
+
+            // if q input, cleanly exit
             let key_input = stdin.next();
             match key_input {
                 Some(Ok(b'q')) => {
@@ -271,7 +301,7 @@ async fn main() {
                     write!(
                         stdout_main,
                         "{}{}",
-                        termion::cursor::Goto(2, 1),
+                        termion::cursor::Goto(1, 2),
                         a.unwrap() as char
                     )
                     .unwrap();
