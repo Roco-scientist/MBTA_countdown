@@ -121,11 +121,11 @@ async fn main() {
                 // if it is less than 3 am or the same day of the last vehicle, pause for 5 minutes
                 // and recheck the time
                 while now.hour() < 3 || now.hour() == 24 || now.day() == last_time.day() {
-                    tokio::time::sleep(Duration::from_secs(300)).await;
-                    now = Local::now();
                     if *quit_clone.lock().unwrap() {
                         break;
                     };
+                    tokio::time::sleep(Duration::from_secs(300)).await;
+                    now = Local::now();
                 }
 
                 // after 3 am get the first and last vehicle times
@@ -144,11 +144,11 @@ async fn main() {
                 let one_hour = first_time.hour() - 1;
                 // Pause until one hour before the first train
                 while now.hour() < one_hour {
-                    tokio::time::sleep(Duration::from_secs(300)).await;
-                    now = Local::now();
                     if *quit_clone.lock().unwrap() {
                         break;
                     };
+                    tokio::time::sleep(Duration::from_secs(300)).await;
+                    now = Local::now();
                 }
 
                 // after all puases are done, return false to the other thread to allow it to
@@ -209,10 +209,25 @@ async fn main() {
         while *pause_overnight.lock().unwrap() {
             tokio::time::sleep(Duration::from_secs(300)).await;
             // write!(stdout_main, "{}Paused", termion::cursor::Goto(1, 3),).unwrap();
-            println!("Paused");
-            if *quit.lock().unwrap() {
-                break;
+            let key_input = stdin.next();
+            match key_input {
+                Some(Ok(b'q')) => {
+                    *quit.lock().unwrap() = true;
+                    break;
+                }
+                Some(a) => {
+                    write!(
+                        stdout_main,
+                        "{}{}",
+                        termion::cursor::Goto(2, 1),
+                        a.unwrap() as char
+                    )
+                    .unwrap();
+                    stdout_main.flush().unwrap();
+                }
+                _ => (),
             };
+            println!("Paused");
         }
         write!(stdout_main, "{}      ", termion::cursor::Goto(1, 3),).unwrap();
         if *quit.lock().unwrap() {
