@@ -84,27 +84,6 @@ async fn main() {
             .unwrap_or_else(|err| panic!("ERROR - train_times - {}", err)),
     ));
 
-    // get the first and last train for the day to know when to pause the displays and not
-    // continually update when there are no trains arriving
-    let last_first = mbta_countdown::train_time::max_min_times(&dir_code, &station, &vehicle_code)
-        .unwrap_or_else(|err| panic!("Error - max min times - {}", err));
-    let last_time_arc;
-    let first_time_arc;
-    if let Some([last_time, first_time]) = last_first {
-        last_time_arc = Arc::new(Mutex::new(last_time));
-        first_time_arc = Arc::new(Mutex::new(first_time));
-        // println!("First: {}\nLast: {}", first_time, last_time);
-    } else {
-        panic!("Missing vehicles")
-    };
-
-    // Clone last and first train time to pass into the thread
-    let last_time_arc_clone = Arc::clone(&last_time_arc);
-    let first_time_arc_clone = Arc::clone(&first_time_arc);
-
-    let now = Arc::new(Mutex::new(Local::now()));
-    let now_clone = Arc::clone(&now);
-
     let train_times_clone = Arc::clone(&train_times);
     let quit_clone = Arc::clone(&quit);
 
@@ -115,45 +94,78 @@ async fn main() {
         let mut train_time_errors = 0u8;
         let mut screen = mbta_countdown::ssd1306_screen::ScreenDisplay::new(0x3c)
             .unwrap_or_else(|err| panic!("ERROR - ScreenDisplay - {}", err));
+
+        // get the first and last train for the day to know when to pause the displays and not
+        // continually update when there are no trains arriving
+        let last_first =
+            mbta_countdown::train_time::max_min_times(&dir_code, &station, &vehicle_code)
+                .unwrap_or_else(|err| panic!("Error - max min times - {}", err));
+        let mut last_time;
+        let mut first_time;
+        if let Some([last, _]) = last_first {
+            last_time = last;
+            // println!("First: {}\nLast: {}", first_time, last_time);
+        } else {
+            panic!("Missing vehicles")
+        };
+
         loop {
-            if *now_clone.lock().unwrap() > *last_time_arc_clone.lock().unwrap() {
+            // get the current time
+            let mut now = Local::now();
+
+            // if the current time is after the last time start a pause
+            if now > last_time {
+                println!("Last: {}", last_time);
                 *pause_overnight_clone.lock().unwrap() = true;
-                while now_clone.lock().unwrap().hour() < 3
-                    || now_clone.lock().unwrap().hour() == 24
-                    || now_clone.lock().unwrap().day() == last_time_arc_clone.lock().unwrap().day()
-                {
+
+                // if it is less than 3 am or the same day of the last vehicle, pause for 5 minutes
+                // and recheck the time
+                while now.hour() < 3 || now.hour() == 24 || now.day() == last_time.day() {
                     tokio::time::sleep(Duration::from_secs(300)).await;
-                    *now_clone.lock().unwrap() = Local::now();
+                    now = Local::now();
                     if *quit_clone.lock().unwrap() {
                         break;
                     };
                 }
+
+                // after 3 am get the first and last vehicle times
                 let last_first_thread =
                     mbta_countdown::train_time::max_min_times(&dir_code, &station, &vehicle_code)
                         .unwrap_or_else(|err| panic!("Error - max min times - {}", err));
-                if let Some([last_time, first_time]) = last_first_thread {
-                    *last_time_arc_clone.lock().unwrap() = last_time;
-                    *first_time_arc_clone.lock().unwrap() = first_time;
+                if let Some([last, first]) = last_first_thread {
+                    last_time = last;
+                    first_time = first;
+                    println!("First: {}", first_time);
                 } else {
                     panic!("Missing vehicles")
                 };
-                let one_hour = first_time_arc_clone.lock().unwrap().hour() - 1;
-                while now_clone.lock().unwrap().hour() < one_hour {
+
+                // get the hour one earlier than the first train to begin the countdown again
+                let one_hour = first_time.hour() - 1;
+                // Pause until one hour before the first train
+                while now.hour() < one_hour {
                     tokio::time::sleep(Duration::from_secs(300)).await;
-                    *now_clone.lock().unwrap() = Local::now();
+                    now = Local::now();
                     if *quit_clone.lock().unwrap() {
                         break;
                     };
                 }
+
+                // after all puases are done, return false to the other thread to allow it to
+                // continue
                 *pause_overnight_clone.lock().unwrap() = false;
             };
 
+            // if any other thread changes the quit variable to true, break out of the loop and
+            // clear the display screen
             if *quit_clone.lock().unwrap() {
                 screen
                     .clear_display(true)
                     .unwrap_or_else(|err| panic!("ERROR - clear_display - {}", err));
                 break;
             };
+
+            // if there are train times, display them on the screen, otherwise clear the display
             if let Some(ref train_times_list) = *train_times_clone.lock().unwrap() {
                 screen
                     .display_trains(&train_times_list)
@@ -163,6 +175,8 @@ async fn main() {
                     .clear_display(true)
                     .unwrap_or_else(|err| panic!("ERROR - clear_display - {}", err));
             };
+
+            // async pause for 120 seconds donw in single seconds for a clean quit
             for _ in 0..120u8 {
                 tokio::time::sleep(Duration::from_secs(1)).await;
                 if *quit_clone.lock().unwrap() {
@@ -172,11 +186,13 @@ async fn main() {
                     break;
                 };
             }
+
+            // If there is no error on retrieving the train times from the website, update the
+            // train_times variable, otherwise allow up to 5 errors
             if let Ok(new_train_times) =
                 mbta_countdown::train_time::train_times(&dir_code, &station, &vehicle_code)
             {
-                let mut train_times_unlocked = train_times_clone.lock().unwrap();
-                *train_times_unlocked = new_train_times;
+                *train_times_clone.lock().unwrap() = new_train_times;
                 train_time_errors = 0;
             } else {
                 train_time_errors += 1;
@@ -186,25 +202,19 @@ async fn main() {
             }
         }
     });
+
+    // start the loop for the countdown clock
     loop {
+        // if display thread declares a pause, pause the countdown for 5 minutes
         while *pause_overnight.lock().unwrap() {
             tokio::time::sleep(Duration::from_secs(300)).await;
-            write!(
-                stdout_main,
-                "{}Paused",
-                termion::cursor::Goto(1, 3),
-            )
-            .unwrap();
+            // write!(stdout_main, "{}Paused", termion::cursor::Goto(1, 3),).unwrap();
+            println!("Paused");
             if *quit.lock().unwrap() {
                 break;
             };
         }
-        write!(
-            stdout_main,
-            "{}      ",
-            termion::cursor::Goto(1, 3),
-        )
-        .unwrap();
+        write!(stdout_main, "{}      ", termion::cursor::Goto(1, 3),).unwrap();
         if *quit.lock().unwrap() {
             break;
         };
