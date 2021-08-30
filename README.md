@@ -40,6 +40,15 @@ https://learn.adafruit.com/adafruit-led-backpack/0-dot-56-seven-segment-backpack
 <tr><td>CLK</td><td>Clock line</td><td>15</td><td>GPIO22</td></tr>
 </table>
 
+### Shutdown button (optional)
+Required: Momentary switch<br>
+Connect GPIO pin 13 through a momentary switch to a 3.3V source.  Add a couple hundred ohm resistor 
+to prevent over voltage to pin 13.  Pressing the momentary switch will cleanly shutdown the program 
+then shutdown the raspberry pi.
+
+### Power led (optional)
+Connect led with appropriate resistor to txio/GPIO14 and ground.
+
 ## How to run
 `sudo apt-get install libssl-dev`<br>
 `cargo build` or `cargo build --release`<br>
