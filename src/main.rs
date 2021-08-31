@@ -66,6 +66,22 @@ async fn main() {
         })
         .unwrap();
 
+    // clone quite to put into the following thread
+    let quit_clone = Arc::clone(&quit);
+    // spawn a thread to detect 'q' being pressed to quit
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_millis(250)).await;
+            // if q input, set quit to ture in order to cleanly exit all threads
+            let key_input = stdin.next();
+            if let Some(some_key) = key_input {
+                if some_key.unwrap() == b'q' {
+                    *quit_clone.lock().unwrap() = true;
+                    break;
+                }
+            }
+        }
+    });
     // setup countdown clock.  If the type is not TM1637, the I2C address is used, otherwise it is
     // bit banged
     let address;
@@ -91,6 +107,7 @@ async fn main() {
     let pause_overnight = Arc::new(Mutex::new(false));
     let pause_overnight_clone = Arc::clone(&pause_overnight);
 
+    // spawn screen thread
     let screen_train_thread = tokio::spawn(async move {
         let mut train_time_errors = 0u8;
         let mut screen = mbta_countdown::ssd1306_screen::ScreenDisplay::new(0x3c)
@@ -242,25 +259,8 @@ async fn main() {
             stdout_main.flush().unwrap();
             tokio::time::sleep(Duration::from_secs(300)).await;
             minutes_paused += 5;
-
-            // if q input, cleanly exit
-            let key_input = stdin.next();
-            match key_input {
-                Some(Ok(b'q')) => {
-                    *quit.lock().unwrap() = true;
-                    break;
-                }
-                Some(a) => {
-                    write!(
-                        stdout_main,
-                        "{}{}",
-                        termion::cursor::Goto(1, 2),
-                        a.unwrap() as char
-                    )
-                    .unwrap();
-                    stdout_main.flush().unwrap();
-                }
-                _ => (),
+            if *quit.lock().unwrap() {
+                break;
             };
         }
 
@@ -282,50 +282,10 @@ async fn main() {
             clock
                 .display_time_until(&train_times_list, &minimum_display_min)
                 .unwrap_or_else(|err| panic!("ERROR - display_time_until - {}", err));
-
-            // if q input, cleanly exit
-            let key_input = stdin.next();
-            match key_input {
-                Some(Ok(b'q')) => {
-                    *quit.lock().unwrap() = true;
-                    break;
-                }
-                Some(a) => {
-                    write!(
-                        stdout_main,
-                        "{}{}",
-                        termion::cursor::Goto(1, 2),
-                        a.unwrap() as char
-                    )
-                    .unwrap();
-                    stdout_main.flush().unwrap();
-                }
-                _ => (),
-            };
         } else {
             clock
                 .clear_display()
                 .unwrap_or_else(|err| panic!("ERROR - clear_display - {}", err));
-
-            // if q input, cleanly exit
-            let key_input = stdin.next();
-            match key_input {
-                Some(Ok(b'q')) => {
-                    *quit.lock().unwrap() = true;
-                    break;
-                }
-                Some(a) => {
-                    write!(
-                        stdout_main,
-                        "{}{}",
-                        termion::cursor::Goto(1, 2),
-                        a.unwrap() as char
-                    )
-                    .unwrap();
-                    stdout_main.flush().unwrap();
-                }
-                _ => (),
-            };
         };
     }
 
@@ -469,11 +429,6 @@ pub fn arguments() -> Result<(String, String, u8, String, String), Box<dyn std::
     }
 
     let clock_type = args.value_of("clock_type").unwrap().to_string();
-    // let clock_type = match args.value_of("clock_type").unwrap() {
-    //     "HT16K33" => ClockType::HT16K33,
-    //     "TM1637" => ClockType::TM1637,
-    //     _ => panic!("Unknown clock type")
-    // };
 
     // reforms direction input to the direction code used in the API
     let mut dir_code = String::new();
