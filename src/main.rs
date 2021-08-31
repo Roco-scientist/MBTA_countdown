@@ -117,6 +117,10 @@ async fn main() {
             if now > last_time {
                 *pause_overnight_clone.lock().unwrap() = true;
 
+                screen
+                    .clear_display(true)
+                    .unwrap_or_else(|err| panic!("ERROR - clear_display - {}", err));
+
                 // if it is less than 3 am or the same day of the last vehicle, pause for 5 minutes
                 // and recheck the time
                 while now.hour() < 3 || now.hour() == 24 || now.day() == last_time.day() {
