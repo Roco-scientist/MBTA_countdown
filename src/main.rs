@@ -7,6 +7,7 @@ use std;
 use std::{
     cmp,
     collections::HashMap,
+    error,
     io::{stdout, Read, Write},
     process::{exit, Command},
     sync::{Arc, Mutex},
@@ -98,6 +99,7 @@ async fn main() {
     // Get the scheduled and predicted train times to display and countdown from
     let train_times = Arc::new(Mutex::new(
         mbta_countdown::train_time::train_times(&dir_code, &station, &vehicle_code)
+            .await
             .unwrap_or_else(|err| panic!("ERROR - train_times - {}", err)),
     ));
 
@@ -116,7 +118,7 @@ async fn main() {
         // get the first and last train for the day to know when to pause the displays and not
         // continually update when there are no trains arriving
         let last_first =
-            mbta_countdown::train_time::max_min_times(&dir_code, &station, &vehicle_code)
+            mbta_countdown::train_time::max_min_times(&dir_code, &station, &vehicle_code).await
                 .unwrap_or_else(|err| panic!("Error - max min times - {}", err));
         let mut last_time;
         let mut first_time;
@@ -150,7 +152,7 @@ async fn main() {
 
                 // after 3 am get the first and last vehicle times
                 let last_first_thread =
-                    mbta_countdown::train_time::max_min_times(&dir_code, &station, &vehicle_code)
+                    mbta_countdown::train_time::max_min_times(&dir_code, &station, &vehicle_code).await
                         .unwrap_or_else(|err| panic!("Error - max min times - {}", err));
                 if let Some([last, first]) = last_first_thread {
                     last_time = last;
@@ -231,7 +233,7 @@ async fn main() {
             // If there is no error on retrieving the train times from the website, update the
             // train_times variable, otherwise allow up to 5 errors
             if let Ok(new_train_times) =
-                mbta_countdown::train_time::train_times(&dir_code, &station, &vehicle_code)
+                mbta_countdown::train_time::train_times(&dir_code, &station, &vehicle_code).await
             {
                 *train_times_clone.lock().unwrap() = new_train_times;
                 train_time_errors = 0;
@@ -320,7 +322,7 @@ async fn main() {
 }
 
 /// Gets the command line arguments
-pub fn arguments() -> Result<(String, String, u8, String, String), Box<dyn std::error::Error>> {
+pub fn arguments() -> Result<(String, String, u8, String, String), Box<dyn error::Error>> {
     // get station and vehicle conversions for the MBTA API
     let (vehicle_info, station_info) = mbta_countdown::mbta_info::all_mbta_info(false)?;
     // get a list of stations to limit the station argument input
