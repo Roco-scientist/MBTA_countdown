@@ -470,6 +470,20 @@ pub fn arguments() -> Result<(String, String, u8, String, String), Box<dyn std::
 
     // either set clock_brightness to input or defaul to 7
     let clock_brightness = args.value_of("clock_brightness").unwrap().parse::<u8>()?;
+    // exit if the brightness is too high for TM1637
+    if clock_brightness > 7 && clock_type == "TM1637".to_string() {
+        panic!(
+            "Clock brightness limit of 7 for TM1637.  Value input is {}",
+            clock_brightness
+        );
+    };
+    // exit if the brightness is too high for HT16K33
+    if clock_brightness > 9 && clock_type == "HT16K33".to_string() {
+        panic!(
+            "Clock brightness limit of 9 for HT16K33.  Value input is {}",
+            clock_brightness
+        );
+    };
     return Ok((
         dir_code,
         station,
