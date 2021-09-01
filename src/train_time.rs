@@ -52,7 +52,7 @@ pub fn max_min_times(
     station: &str,
     route_code: &str,
 ) -> Result<Option<[DateTime<Local>; 2]>, Box<dyn Error>> {
-    if let Some(scheduled_times) = get_scheduled_times(station, dir_code, route_code, true)? {
+    if let Some(scheduled_times) = get_scheduled_times(station, dir_code, route_code, false)? {
         let mut all_times = scheduled_times
             .values()
             .map(|date| date.clone())
