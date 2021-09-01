@@ -10,7 +10,7 @@ edition = "2018"
 chrono = "0.4"
 ht16k33 = "0.4"
 lazy_static = "1.4"
-reqwest = {version = "0.10.0-alpha.2", features = ["blocking", "json"]}
+reqwest = {version = "0.11", features = ["blocking", "json"]}
 rppal = {version = "0.11", features = ["hal-unproven"]}
 serde_json = "1.0"
 ssd1306 = "0.4"
