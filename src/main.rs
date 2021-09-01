@@ -1,7 +1,6 @@
 use chrono::prelude::*;
 use chrono::Local;
 use clap::{App, Arg};
-use futures::executor::block_on;
 use mbta_countdown;
 use rppal::gpio;
 use std;
@@ -119,7 +118,7 @@ async fn main() {
         // get the first and last train for the day to know when to pause the displays and not
         // continually update when there are no trains arriving
         let last_first =
-            mbta_countdown::train_time::max_min_times(&dir_code, &station, &vehicle_code)
+            mbta_countdown::train_time::max_min_times(&dir_code, &station, &vehicle_code).await
                 .unwrap_or_else(|err| panic!("Error - max min times - {}", err));
         let mut last_time;
         let mut first_time;
@@ -153,7 +152,7 @@ async fn main() {
 
                 // after 3 am get the first and last vehicle times
                 let last_first_thread =
-                    mbta_countdown::train_time::max_min_times(&dir_code, &station, &vehicle_code)
+                    mbta_countdown::train_time::max_min_times(&dir_code, &station, &vehicle_code).await
                         .unwrap_or_else(|err| panic!("Error - max min times - {}", err));
                 if let Some([last, first]) = last_first_thread {
                     last_time = last;
