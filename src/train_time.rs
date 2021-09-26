@@ -34,13 +34,7 @@ pub async fn train_times(
     let now = Local::now();
     let mut all_times = scheduled_times
         .values()
-        .filter_map(|date| {
-            if date > &now {
-                Some(*date)
-            } else {
-                None
-            }
-        })
+        .filter_map(|date| if date > &now { Some(*date) } else { None })
         .collect::<Vec<DateTime<Local>>>();
     all_times.sort();
     //    println!("{:?}", all_times);
