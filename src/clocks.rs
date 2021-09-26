@@ -1,6 +1,12 @@
 use chrono;
 use chrono::prelude::*;
 
+#[derive(PartialEq)]
+pub enum ClockType {
+    HT16K33,
+    TM1637,
+}
+
 pub struct Clocks {
     display_ht16k33: Option<crate::ht16k33::ClockDisplay>,
     display_tm1637: Option<crate::tm1637::ClockDisplay>,
@@ -8,24 +14,27 @@ pub struct Clocks {
 
 impl Clocks {
     pub fn new(
-        clock_type: String,
+        clock_type: ClockType,
         clock_brightness: u8,
         address: Option<u8>,
     ) -> Result<Clocks, Box<dyn std::error::Error>> {
-        if clock_type == *"HT16K33" {
-            let clock_ht16k33 =
-                crate::ht16k33::ClockDisplay::new(address.unwrap(), clock_brightness)?;
-            Ok(Clocks {
-                display_ht16k33: Some(clock_ht16k33),
-                display_tm1637: None,
-            })
-        } else {
-            let clock_tm1637 = crate::tm1637::ClockDisplay::new(clock_brightness)?;
-            Ok(Clocks {
-                display_ht16k33: None,
-                display_tm1637: Some(clock_tm1637),
-            })
-        }
+        match clock_type {
+            ClockType::TM1637 => {
+                let clock_tm1637 = crate::tm1637::ClockDisplay::new(clock_brightness)?;
+                return Ok(Clocks {
+                    display_ht16k33: None,
+                    display_tm1637: Some(clock_tm1637),
+                });
+            }
+            ClockType::HT16K33 => {
+                let clock_ht16k33 =
+                    crate::ht16k33::ClockDisplay::new(address.unwrap(), clock_brightness)?;
+                return Ok(Clocks {
+                    display_ht16k33: Some(clock_ht16k33),
+                    display_tm1637: None,
+                });
+            }
+        };
     }
     pub fn display_time_until(
         &mut self,
@@ -35,8 +44,8 @@ impl Clocks {
         if let Some(display) = &mut self.display_ht16k33 {
             display.display_time_until(train_times_list, minimum_display_min)?
         } else if let Some(display) = &mut self.display_tm1637 {
-                display.display_time_until(train_times_list, minimum_display_min)?
-            }
+            display.display_time_until(train_times_list, minimum_display_min)?
+        }
         Ok(())
     }
 
@@ -44,8 +53,8 @@ impl Clocks {
         if let Some(display) = &mut self.display_ht16k33 {
             display.clear_display()?
         } else if let Some(display) = &mut self.display_tm1637 {
-                display.clear_display()?
-            }
+            display.clear_display()?
+        }
         Ok(())
     }
 }

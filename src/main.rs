@@ -1,6 +1,7 @@
 use chrono::prelude::*;
 use chrono::Local;
 use clap::{App, Arg};
+use mbta_countdown::clocks::ClockType;
 use rppal::gpio;
 use std::{
     cmp,
@@ -8,7 +9,10 @@ use std::{
     error,
     io::{stdout, Read, Write},
     process::{exit, Command},
-    sync::{Arc, atomic::{AtomicBool, Ordering}, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
     time::Duration,
 };
 use termion::{async_stdin, raw::IntoRawMode};
@@ -82,12 +86,10 @@ async fn main() {
     });
     // setup countdown clock.  If the type is not TM1637, the I2C address is used, otherwise it is
     // bit banged
-    let address;
-    if clock_type == *"TM1637" {
-        address = None;
-    } else {
-        address = Some(0x70)
-    }
+    let address = match clock_type {
+        ClockType::TM1637 => None,
+        ClockType::HT16K33 => Some(0x70),
+    };
     // Initiate the countdown clock
     let mut clock;
     clock = mbta_countdown::clocks::Clocks::new(clock_type, clock_brightness, address)
@@ -321,7 +323,7 @@ async fn main() {
 }
 
 /// Gets the command line arguments
-pub fn arguments() -> Result<(String, String, u8, String, String), Box<dyn error::Error>> {
+pub fn arguments() -> Result<(String, String, u8, String, ClockType), Box<dyn error::Error>> {
     // get station and vehicle conversions for the MBTA API
     let (vehicle_info, station_info) = mbta_countdown::mbta_info::all_mbta_info(false)?;
     // get a list of stations to limit the station argument input
@@ -429,7 +431,11 @@ pub fn arguments() -> Result<(String, String, u8, String, String), Box<dyn error
         exit(0i32);
     }
 
-    let clock_type = args.value_of("clock_type").unwrap().to_string();
+    let clock_type = match args.value_of("clock_type").unwrap() {
+        "HT16K33" => ClockType::HT16K33,
+        "TM1637" => ClockType::TM1637,
+        _ => panic!("Unrecognized clock type"),
+    };
 
     // reforms direction input to the direction code used in the API
     let mut dir_code = String::new();
@@ -468,14 +474,14 @@ pub fn arguments() -> Result<(String, String, u8, String, String), Box<dyn error
     // either set clock_brightness to input or defaul to 7
     let clock_brightness = args.value_of("clock_brightness").unwrap().parse::<u8>()?;
     // exit if the brightness is too high for TM1637
-    if clock_brightness > 7 && clock_type == *"TM1637" {
+    if clock_brightness > 7 && clock_type == ClockType::TM1637 {
         panic!(
             "Clock brightness limit of 7 for TM1637.  Value input is {}",
             clock_brightness
         );
     };
     // exit if the brightness is too high for HT16K33
-    if clock_brightness > 9 && clock_type == *"HT16K33" {
+    if clock_brightness > 9 && clock_type == ClockType::HT16K33 {
         panic!(
             "Clock brightness limit of 9 for HT16K33.  Value input is {}",
             clock_brightness
