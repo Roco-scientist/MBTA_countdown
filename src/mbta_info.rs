@@ -92,7 +92,7 @@ pub fn all_mbta_info(
     let g = File::open(&mbta_station_file_loc)?;
     let reader = BufReader::new(g);
     let station_info = serde_json::from_reader(reader)?;
-    return Ok((vehicle_info, station_info));
+    Ok((vehicle_info, station_info))
 }
 
 /// Scrapes all station information from the MBTA websites and returns a HashMap of the information
@@ -108,7 +108,7 @@ fn retrieve_stations(
     station_conversion = update_station_hashmap(station_conversion, parse_stations(subway_url)?);
     station_conversion = update_station_hashmap(station_conversion, parse_stations(communter_url)?);
     station_conversion = update_station_hashmap(station_conversion, parse_stations(ferry_url)?);
-    return Ok(station_conversion);
+    Ok(station_conversion)
 }
 
 fn update_station_hashmap(
@@ -120,7 +120,7 @@ fn update_station_hashmap(
         api_veh.insert(station_api, vehicles);
         station_conversion.insert(station, api_veh);
     }
-    return station_conversion;
+    station_conversion
 }
 
 /// Pulls the station information along with vehicles that stop at the station from the given URL
@@ -161,13 +161,13 @@ fn parse_stations(
             (
                 station_name.clone(),
                 station_api_name.clone(),
-                station_vehicles(&station_api_name)
+                station_vehicles(station_api_name)
                     .unwrap_or_else(|err| panic!("Station vehicle error: {}", err)),
             )
         })
         .collect_into_vec(&mut station_info_all);
 
-    return Ok(station_info_all);
+    Ok(station_info_all)
 }
 
 /// Finds all vehicles that stop at the station of interest
@@ -192,7 +192,7 @@ fn station_vehicles(station_code: &str) -> Result<Vec<String>, Box<dyn std::erro
                 .replace("/schedules/", "")
         })
         .collect();
-    return Ok(vehicles);
+    Ok(vehicles)
 }
 
 /// Retrieve commuter rail conversion for MBTA API from common understandable name to MTBA API code
@@ -212,7 +212,7 @@ fn retrieve_commuter() -> Result<HashMap<String, String>, Box<dyn std::error::Er
         .map(|commuter| (commuter[0].clone(), commuter[1].clone()))
         .collect();
     println!("Finished Commuter");
-    return Ok(commuter_conversion);
+    Ok(commuter_conversion)
 }
 
 /// Retrieve ferry conversion for MBTA API from common understandable name to MTBA API code
@@ -232,7 +232,7 @@ fn retrieve_ferry() -> Result<HashMap<String, String>, Box<dyn std::error::Error
         .map(|ferry| (ferry[0].clone(), ferry[1].clone()))
         .collect();
     println!("Finished Ferry");
-    return Ok(ferry_conversion);
+    Ok(ferry_conversion)
 }
 
 /// Retrieve subway conversion for MBTA API from common understandable name to MTBA API code.
@@ -270,7 +270,7 @@ fn retrieve_subway() -> Result<HashMap<String, String>, Box<dyn std::error::Erro
             .map(|green| (green[1].clone(), green[1].clone())),
     );
     println!("Finished Subway");
-    return Ok(subway_conversion);
+    Ok(subway_conversion)
 }
 
 /// Use to find all matches within an HTML when only a part is known.  For example here, when all subway button selectors start with 'c-grid-button--' but end with a different word.  This will find all occurances
@@ -293,7 +293,7 @@ fn partial_selector_match(
                 .to_string()
         })
         .collect();
-    return Ok(selected_lines);
+    Ok(selected_lines)
 }
 
 /// Parses the schedule website.  This website is used to pull all vehicle information
@@ -334,5 +334,5 @@ fn parse_schedule_website(
             ]
         })
         .collect();
-    return Ok(conversion_info);
+    Ok(conversion_info)
 }

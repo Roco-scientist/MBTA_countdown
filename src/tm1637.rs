@@ -91,7 +91,7 @@ impl ClockDisplay {
     /// Dispalys the minutes:seconds until the next train on the clock display
     pub fn display_time_until(
         &mut self,
-        train_times: &Vec<chrono::DateTime<Local>>,
+        train_times: &[chrono::DateTime<Local>],
         minimum_display_min: &i64,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // get now time in UTC
@@ -186,7 +186,7 @@ impl ClockDisplay {
             // if minutes is greater than 100 clear dispaly and set all values to none
             self.clear_display()?;
         };
-        return Ok(());
+        Ok(())
     }
 
     /// Clears clock display
@@ -248,7 +248,7 @@ impl ClockDisplay {
         self.display
             .command_three_control_display(self.brightness)
             .unwrap();
-        return Ok(());
+        Ok(())
     }
 }
 
@@ -272,8 +272,8 @@ pub struct TM1637<CLK, DIO> {
 }
 
 enum Bit {
-    ZERO,
-    ONE,
+    Zero,
+    One,
 }
 
 impl<CLK, DIO, E> TM1637<CLK, DIO>
@@ -322,9 +322,9 @@ where
     fn send(&mut self, byte: u8) -> Res<E> {
         let mut rest = byte;
         for _ in 0..8 {
-            let bit = if rest & 1 != 0 { Bit::ONE } else { Bit::ZERO };
+            let bit = if rest & 1 != 0 { Bit::One } else { Bit::Zero };
             self.send_bit_and_delay(bit)?;
-            rest = rest >> 1;
+            rest >>= 1;
         }
 
         // Wait for the ACK
@@ -374,7 +374,7 @@ where
     fn send_bit_and_delay(&mut self, value: Bit) -> Res<E> {
         self.clk.set_low()?;
         self.short_delay();
-        if let Bit::ONE = value {
+        if let Bit::One = value {
             self.dio.set_high()?;
         } else {
             self.dio.set_low()?;

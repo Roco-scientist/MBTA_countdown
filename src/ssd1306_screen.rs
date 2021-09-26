@@ -45,20 +45,20 @@ impl ScreenDisplay {
     /// Displays train1 and train2 on the screen display
     pub fn display_trains(
         &mut self,
-        train_times: &Vec<DateTime<Local>>,
+        train_times: &[DateTime<Local>],
     ) -> Result<(), Box<dyn std::error::Error>> {
         // create a variable to test whether or not the screen needs to be updated
         let mut update_screen = false;
         // if train1 is different than nearest train, replace with nearest train and update later
         if Some(train_times[0]) != self.train1 {
-            self.train1 = Some(train_times[0].clone());
+            self.train1 = Some(train_times[0]);
             update_screen = true;
         }
         // if there is more than one train time, proceed with train2
         if train_times.len() > 1 {
             // if train 2 is different from second train, replace and update
             if Some(train_times[1]) != self.train2 {
-                self.train2 = Some(train_times[1].clone());
+                self.train2 = Some(train_times[1]);
                 update_screen = true;
             }
         } else {
