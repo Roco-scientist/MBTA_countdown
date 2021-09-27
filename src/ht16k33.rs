@@ -70,7 +70,7 @@ impl ClockDisplay {
     /// Dispalys the minutes:seconds until the next train on the clock display
     pub fn display_time_until(
         &mut self,
-        train_times: &Vec<chrono::DateTime<Local>>,
+        train_times: &[chrono::DateTime<Local>],
         minimum_display_min: &i64,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // get now time in UTC
@@ -150,7 +150,7 @@ impl ClockDisplay {
             // if minutes is greater than 100 clear dispaly and set all values to none
             self.clear_display()?;
         };
-        return Ok(());
+        Ok(())
     }
 
     /// Clears clock display
@@ -187,13 +187,13 @@ impl ClockDisplay {
             self.switch_leds(leds, 8, true)?;
         }
         self.display_colon(true)?;
-        return Ok(());
+        Ok(())
     }
 
     /// Turns on/off the necessary leds for a number at the indicated location
     fn switch_leds(
         &mut self,
-        leds: &Vec<u8>,
+        leds: &[u8],
         location: u8,
         on: bool,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -240,7 +240,7 @@ impl ClockDisplay {
                 .iter()
                 .filter_map(|led| {
                     if !new_leds.contains(led) {
-                        Some(led.clone())
+                        Some(*led)
                     } else {
                         None
                     }
@@ -253,7 +253,7 @@ impl ClockDisplay {
                 .iter()
                 .filter_map(|led| {
                     if !old_leds.contains(led) {
-                        Some(led.clone())
+                        Some(*led)
                     } else {
                         None
                     }
@@ -266,6 +266,6 @@ impl ClockDisplay {
         } else {
             self.switch_leds(new_leds, location, true)?
         };
-        return Ok(());
+        Ok(())
     }
 }

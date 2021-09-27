@@ -1,19 +1,20 @@
 use chrono::prelude::*;
 use chrono::Local;
 use clap::{App, Arg};
-use mbta_countdown;
+use mbta_countdown::clocks::ClockType;
 use rppal::gpio;
-use std;
 use std::{
     cmp,
     collections::HashMap,
     error,
     io::{stdout, Read, Write},
     process::{exit, Command},
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
     time::Duration,
 };
-use termion;
 use termion::{async_stdin, raw::IntoRawMode};
 
 #[tokio::main]
@@ -47,8 +48,8 @@ async fn main() {
     stdout_main.flush().unwrap();
 
     // setup variables that are passed between threads
-    let quit = Arc::new(Mutex::new(false)); // set quit to false to have a clean quit
-    let shutdown = Arc::new(Mutex::new(false)); // shutdown varaible passed after button press
+    let quit = Arc::new(AtomicBool::new(false)); // set quit to false to have a clean quit
+    let shutdown = Arc::new(AtomicBool::new(false)); // shutdown varaible passed after button press
 
     // clone quit and shutdown variable to put into async thread for button
     let quit_clone = Arc::clone(&quit);
@@ -62,8 +63,8 @@ async fn main() {
         .into_input_pulldown();
     shutdown_pin
         .set_async_interrupt(gpio::Trigger::RisingEdge, move |_| {
-            *quit_clone.lock().unwrap() = true;
-            *shutdown_clone.lock().unwrap() = true;
+            quit_clone.store(true, Ordering::Relaxed);
+            shutdown_clone.store(true, Ordering::Relaxed);
         })
         .unwrap();
 
@@ -77,7 +78,7 @@ async fn main() {
             let key_input = stdin.next();
             if let Some(some_key) = key_input {
                 if some_key.unwrap() == b'q' {
-                    *quit_clone.lock().unwrap() = true;
+                    quit_clone.store(true, Ordering::Relaxed);
                     break;
                 }
             }
@@ -85,12 +86,10 @@ async fn main() {
     });
     // setup countdown clock.  If the type is not TM1637, the I2C address is used, otherwise it is
     // bit banged
-    let address;
-    if clock_type == "TM1637".to_string() {
-        address = None;
-    } else {
-        address = Some(0x70)
-    }
+    let address = match clock_type {
+        ClockType::TM1637 => None,
+        ClockType::HT16K33 => Some(0x70),
+    };
     // Initiate the countdown clock
     let mut clock;
     clock = mbta_countdown::clocks::Clocks::new(clock_type, clock_brightness, address)
@@ -106,7 +105,7 @@ async fn main() {
     let train_times_clone = Arc::clone(&train_times);
     let quit_clone = Arc::clone(&quit);
 
-    let pause_overnight = Arc::new(Mutex::new(false));
+    let pause_overnight = Arc::new(AtomicBool::new(false));
     let pause_overnight_clone = Arc::clone(&pause_overnight);
 
     // spawn screen thread
@@ -118,7 +117,8 @@ async fn main() {
         // get the first and last train for the day to know when to pause the displays and not
         // continually update when there are no trains arriving
         let last_first =
-            mbta_countdown::train_time::max_min_times(&dir_code, &station, &vehicle_code).await
+            mbta_countdown::train_time::max_min_times(&dir_code, &station, &vehicle_code)
+                .await
                 .unwrap_or_else(|err| panic!("Error - max min times - {}", err));
         let mut last_time;
         let mut first_time;
@@ -134,7 +134,7 @@ async fn main() {
 
             // if the current time is after the last time start a pause
             if now > last_time {
-                *pause_overnight_clone.lock().unwrap() = true;
+                pause_overnight_clone.store(true, Ordering::Relaxed);
 
                 screen
                     .clear_display(true)
@@ -143,7 +143,7 @@ async fn main() {
                 // if it is less than 3 am or the same day of the last vehicle, pause for 5 minutes
                 // and recheck the time
                 while now.hour() < 3 || now.hour() == 24 || now.day() == last_time.day() {
-                    if *quit_clone.lock().unwrap() {
+                    if quit_clone.load(Ordering::Relaxed) {
                         break;
                     };
                     tokio::time::sleep(Duration::from_secs(300)).await;
@@ -152,7 +152,8 @@ async fn main() {
 
                 // after 3 am get the first and last vehicle times
                 let last_first_thread =
-                    mbta_countdown::train_time::max_min_times(&dir_code, &station, &vehicle_code).await
+                    mbta_countdown::train_time::max_min_times(&dir_code, &station, &vehicle_code)
+                        .await
                         .unwrap_or_else(|err| panic!("Error - max min times - {}", err));
                 if let Some([last, first]) = last_first_thread {
                     last_time = last;
@@ -165,7 +166,7 @@ async fn main() {
                 let one_hour = first_time.hour() - 1;
                 // Pause until one hour before the first train
                 while now.hour() < one_hour {
-                    if *quit_clone.lock().unwrap() {
+                    if quit_clone.load(Ordering::Relaxed) {
                         break;
                     };
                     tokio::time::sleep(Duration::from_secs(300)).await;
@@ -174,12 +175,12 @@ async fn main() {
 
                 // after all puases are done, return false to the other thread to allow it to
                 // continue
-                *pause_overnight_clone.lock().unwrap() = false;
+                pause_overnight_clone.store(false, Ordering::Relaxed);
             };
 
             // if any other thread changes the quit variable to true, break out of the loop and
             // clear the display screen
-            if *quit_clone.lock().unwrap() {
+            if quit_clone.load(Ordering::Relaxed) {
                 screen
                     .clear_display(true)
                     .unwrap_or_else(|err| panic!("ERROR - clear_display - {}", err));
@@ -194,7 +195,7 @@ async fn main() {
             // if there are train times, display them on the screen, otherwise clear the display
             if let Some(ref train_times_list) = *train_times_clone.lock().unwrap() {
                 screen
-                    .display_trains(&train_times_list)
+                    .display_trains(train_times_list)
                     .unwrap_or_else(|err| panic!("ERROR - display_trains - {}", err));
                 // make sure the train time is greater than now to prevent a negative train
                 // difference
@@ -222,7 +223,7 @@ async fn main() {
             // async pause for 120 seconds donw in single seconds for a clean quit
             for _ in 0..pause_seconds {
                 tokio::time::sleep(Duration::from_secs(1)).await;
-                if *quit_clone.lock().unwrap() {
+                if quit_clone.load(Ordering::Relaxed) {
                     screen
                         .clear_display(true)
                         .unwrap_or_else(|err| panic!("ERROR - clear_display - {}", err));
@@ -250,7 +251,7 @@ async fn main() {
     loop {
         // if display thread declares a pause, pause the countdown for 5 minutes
         let mut minutes_paused = 0u32;
-        while *pause_overnight.lock().unwrap() {
+        while pause_overnight.load(Ordering::Relaxed) {
             write!(
                 stdout_main,
                 "{}Paused for {} minutes",
@@ -261,7 +262,7 @@ async fn main() {
             stdout_main.flush().unwrap();
             tokio::time::sleep(Duration::from_secs(300)).await;
             minutes_paused += 5;
-            if *quit.lock().unwrap() {
+            if quit.load(Ordering::Relaxed) {
                 break;
             };
         }
@@ -275,14 +276,14 @@ async fn main() {
         .unwrap();
         stdout_main.flush().unwrap();
 
-        if *quit.lock().unwrap() {
+        if quit.load(Ordering::Relaxed) {
             break;
         };
         tokio::time::sleep(Duration::from_millis(250)).await;
         // if there are some train times, display on clock and screen
         if let Some(ref train_times_list) = *train_times.lock().unwrap() {
             clock
-                .display_time_until(&train_times_list, &minimum_display_min)
+                .display_time_until(train_times_list, &minimum_display_min)
                 .unwrap_or_else(|err| panic!("ERROR - display_time_until - {}", err));
         } else {
             clock
@@ -311,7 +312,7 @@ async fn main() {
         .clear_display()
         .unwrap_or_else(|err| panic!("ERROR - clear_display - {}", err));
 
-    if *shutdown.lock().unwrap() {
+    if shutdown.load(Ordering::Relaxed) {
         println!("Shutting down");
         Command::new("shutdown")
             .arg("-h")
@@ -322,12 +323,12 @@ async fn main() {
 }
 
 /// Gets the command line arguments
-pub fn arguments() -> Result<(String, String, u8, String, String), Box<dyn error::Error>> {
+pub fn arguments() -> Result<(String, String, u8, String, ClockType), Box<dyn error::Error>> {
     // get station and vehicle conversions for the MBTA API
     let (vehicle_info, station_info) = mbta_countdown::mbta_info::all_mbta_info(false)?;
     // get a list of stations to limit the station argument input
     let mut input_stations: Vec<&str> = station_info.keys().map(|key| key.as_str()).collect();
-    input_stations.sort();
+    input_stations.sort_unstable();
     // create an empty hashmap to handle errors when the key does not exist and update is called
     let mut empty_vehicle_hashmap = HashMap::new();
     empty_vehicle_hashmap.insert("".to_string(), "".to_string());
@@ -336,15 +337,15 @@ pub fn arguments() -> Result<(String, String, u8, String, String), Box<dyn error
         .get("Commuter_Rail")
         .unwrap_or(&empty_vehicle_hashmap);
     let mut input_commuter: Vec<&str> = commuter_rails.keys().map(|key| key.as_str()).collect();
-    input_commuter.sort();
+    input_commuter.sort_unstable();
     // get a list of subway lines to limit the subway argument input
     let subway_lines = vehicle_info.get("Subway").unwrap_or(&empty_vehicle_hashmap);
     let mut input_subway: Vec<&str> = subway_lines.keys().map(|key| key.as_str()).collect();
-    input_subway.sort();
+    input_subway.sort_unstable();
     // get a list of ferry lines to limit the ferry argument input
     let ferry_lines = vehicle_info.get("Ferry").unwrap_or(&empty_vehicle_hashmap);
     let mut input_ferry: Vec<&str> = ferry_lines.keys().map(|key| key.as_str()).collect();
-    input_ferry.sort();
+    input_ferry.sort_unstable();
 
     // parse arguments
     let args = App::new("MBTA train departure display")
@@ -430,7 +431,11 @@ pub fn arguments() -> Result<(String, String, u8, String, String), Box<dyn error
         exit(0i32);
     }
 
-    let clock_type = args.value_of("clock_type").unwrap().to_string();
+    let clock_type = match args.value_of("clock_type").unwrap() {
+        "HT16K33" => ClockType::HT16K33,
+        "TM1637" => ClockType::TM1637,
+        _ => panic!("Unrecognized clock type"),
+    };
 
     // reforms direction input to the direction code used in the API
     let mut dir_code = String::new();
@@ -446,14 +451,10 @@ pub fn arguments() -> Result<(String, String, u8, String, String), Box<dyn error
     let mut vehicle_code = String::new();
     if let Some(commuter_input) = args.value_of("commuter_rail") {
         vehicle_code = commuter_rails.get(commuter_input).unwrap().to_owned();
-    } else {
-        if let Some(subway) = args.value_of("subway_line") {
-            vehicle_code = subway_lines.get(subway).unwrap().to_owned();
-        } else {
-            if let Some(ferry) = args.value_of("ferry_line") {
-                vehicle_code = ferry_lines.get(ferry).unwrap().to_owned()
-            }
-        }
+    } else if let Some(subway) = args.value_of("subway_line") {
+        vehicle_code = subway_lines.get(subway).unwrap().to_owned();
+    } else if let Some(ferry) = args.value_of("ferry_line") {
+        vehicle_code = ferry_lines.get(ferry).unwrap().to_owned()
     };
 
     // Convert station to API code and check if the vehicle code exists at the station
@@ -473,24 +474,24 @@ pub fn arguments() -> Result<(String, String, u8, String, String), Box<dyn error
     // either set clock_brightness to input or defaul to 7
     let clock_brightness = args.value_of("clock_brightness").unwrap().parse::<u8>()?;
     // exit if the brightness is too high for TM1637
-    if clock_brightness > 7 && clock_type == "TM1637".to_string() {
+    if clock_brightness > 7 && clock_type == ClockType::TM1637 {
         panic!(
             "Clock brightness limit of 7 for TM1637.  Value input is {}",
             clock_brightness
         );
     };
     // exit if the brightness is too high for HT16K33
-    if clock_brightness > 9 && clock_type == "HT16K33".to_string() {
+    if clock_brightness > 9 && clock_type == ClockType::HT16K33 {
         panic!(
             "Clock brightness limit of 9 for HT16K33.  Value input is {}",
             clock_brightness
         );
     };
-    return Ok((
+    Ok((
         dir_code,
         station,
         clock_brightness,
         vehicle_code,
         clock_type,
-    ));
+    ))
 }
